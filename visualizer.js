@@ -36,7 +36,7 @@ function drawWaveform(ctx, width, height, audioBuffer) {
   const samplesPerPixel = Math.floor(mono.length / width);
 
   ctx.beginPath();
-  ctx.strokeStyle = '#7cf';
+  ctx.strokeStyle = '#88cc00';
   ctx.lineWidth = 1;
 
   for (let x = 0; x < width; x++) {
@@ -75,7 +75,7 @@ function drawBeatGrid(ctx, width, height, beatTimes, duration) {
     const isDownbeat = i % 4 === 0;
 
     ctx.beginPath();
-    ctx.strokeStyle = isDownbeat ? 'rgba(255,255,100,0.6)' : 'rgba(255,255,100,0.25)';
+    ctx.strokeStyle = isDownbeat ? 'rgba(255,160,0,0.6)' : 'rgba(255,160,0,0.2)';
     ctx.lineWidth = isDownbeat ? 1.5 : 1;
     // Downbeats reach full height; off-beats are shorter (middle 60%)
     const yStart = isDownbeat ? 0 : height * 0.2;
@@ -90,7 +90,7 @@ function drawCueMarker(ctx, width, height, cueTime, duration) {
   const x = Math.round((cueTime / duration) * width);
 
   ctx.beginPath();
-  ctx.strokeStyle = '#0f0';
+  ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 2;
   ctx.moveTo(x, 0);
   ctx.lineTo(x, height);
@@ -98,7 +98,7 @@ function drawCueMarker(ctx, width, height, cueTime, duration) {
 
   // Small downward triangle above the line.
   ctx.beginPath();
-  ctx.fillStyle = '#0f0';
+  ctx.fillStyle = '#ffffff';
   ctx.moveTo(x - 5, 0);
   ctx.lineTo(x + 5, 0);
   ctx.lineTo(x, 8);
@@ -110,8 +110,8 @@ function drawPlayhead(ctx, width, height, playheadTime, duration) {
   const x = Math.round((playheadTime / duration) * width);
 
   ctx.beginPath();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
   ctx.moveTo(x, 0);
   ctx.lineTo(x, height);
   ctx.stroke();
