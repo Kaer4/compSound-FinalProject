@@ -189,7 +189,7 @@ mixBtn.addEventListener('click', async () => {
     return;
   }
 
-  const { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration: scheduledFade, inSource, inGain } = result;
+  const { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration: scheduledFade, inSource, inGain, masterHPF } = result;
   const fadeEndCtxTime = nextDownbeatCtxTime + scheduledFade;
 
   // Wire AnalyserNode for the incoming track.
@@ -232,6 +232,7 @@ mixBtn.addEventListener('click', async () => {
   // After the fade completes, clean up master state.
   const msUntilEnd = (fadeEndCtxTime - ctx.currentTime) * 1000;
   setTimeout(() => {
+    masterHPF.disconnect();
     master.isPlaying = false;
     master.sourceNode = null;
     master.gainNode = null;
