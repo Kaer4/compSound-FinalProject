@@ -1,7 +1,7 @@
 import { detectBPM } from './analysis.js';
 import { drawFrame } from './visualizer.js';
-import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment } from './alignment.js';
-import { scheduleMix } from './crossfade.js';
+import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock } from './alignment.js';
+import { scheduleMix, getFadeDurationSeconds } from './crossfade.js';
 
 // Shared AudioContext — created lazily on first user gesture.
 let audioCtx = null;
@@ -72,6 +72,41 @@ for (const track of Object.values(tracks)) {
   el.stopBtn.addEventListener('click', () => stopTrack(track));
 }
 
+function finishIncomingPlayback(track) {
+  track.isPlaying = false;
+  track.sourceNode = null;
+  track.gainNode = null;
+  track.analyserNode = null;
+  track.startContextTime = null;
+  track.elements.playBtn.disabled = false;
+  track.elements.stopBtn.disabled = true;
+  setStatus(track, 'Ready — click waveform to set cue');
+  drawFrame(track.elements.canvas, track.buffer, track.beatTimes, track.cueTime, null, null);
+  updateMixBtn();
+  maybeStopLoop();
+}
+
+/** Resume incoming at `continuationOffset` after the crossfade, playbackRate 1, same gain chain. */
+function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset) {
+  const contSource = ctx.createBufferSource();
+  contSource.buffer = incoming.buffer;
+  contSource.connect(inGain);
+  contSource.start(fadeEndCtxTime, continuationOffset);
+
+  contSource.onended = () => {
+    if (incoming.sourceNode === contSource) {
+      finishIncomingPlayback(incoming);
+    }
+  };
+
+  const msUntilHandoff = (fadeEndCtxTime - ctx.currentTime) * 1000;
+  setTimeout(() => {
+    incoming.sourceNode = contSource;
+    incoming.cueTime = continuationOffset;
+    incoming.startContextTime = fadeEndCtxTime;
+  }, msUntilHandoff + 50);
+}
+
 // Mix button.
 mixBtn.addEventListener('click', async () => {
   const master = getPlayingTrack();
@@ -81,29 +116,29 @@ mixBtn.addEventListener('click', async () => {
   mixBtn.disabled = true;
   const ctx = getAudioContext();
 
-  // Phase vocoder pre-processing — only stretch the crossfade window, not the whole track.
-  let stretchedBuffer    = null;
-  let continuationOffset = incoming.cueTime; // where original buffer resumes after crossfade
+  const fadeDuration = getFadeDurationSeconds(master.bpm);
+  let stretchedBuffer = null;
+  let sourceAdvance;
 
   if (needsTimeStretch(master.bpm, incoming.bpm)) {
-    const stretchFactor  = incoming.bpm / master.bpm;
-    const fadeDuration   = 8 * (60 / master.bpm);       // crossfade window in seconds
-    const sourceDuration = fadeDuration / stretchFactor; // seconds of original consumed
+    sourceAdvance = fadeDuration * master.bpm / incoming.bpm;
 
-    // Extract just the crossfade slice — ~4–8 seconds instead of the whole track.
-    const slice = extractSegment(incoming.buffer, incoming.cueTime, sourceDuration, ctx);
+    const slice = extractSegment(incoming.buffer, incoming.cueTime, sourceAdvance, ctx);
 
     setMixStatus('Preparing mix…');
     try {
       stretchedBuffer = await timeStretchBuffer(slice, master.bpm, incoming.bpm, ctx);
+      stretchedBuffer = trimBufferToWallClock(ctx, stretchedBuffer, fadeDuration);
     } catch (err) {
       setMixStatus(`Stretch error: ${err.message}`);
       mixBtn.disabled = false;
       return;
     }
-
-    continuationOffset = incoming.cueTime + sourceDuration;
+  } else {
+    sourceAdvance = fadeDuration * computePlaybackRate(master.bpm, incoming.bpm);
   }
+
+  const continuationOffset = incoming.cueTime + sourceAdvance;
 
   // Re-validate master after the async stretch — it may have ended during processing.
   if (!master.isPlaying || !master.gainNode || !master.sourceNode) {
@@ -127,7 +162,8 @@ mixBtn.addEventListener('click', async () => {
     return;
   }
 
-  const { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration, inSource, inGain } = result;
+  const { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration: scheduledFade, inSource, inGain } = result;
+  const fadeEndCtxTime = nextDownbeatCtxTime + scheduledFade;
 
   // Wire AnalyserNode for the incoming track.
   const inAnalyser = ctx.createAnalyser();
@@ -136,44 +172,21 @@ mixBtn.addEventListener('click', async () => {
   inGain.connect(inAnalyser);
   inAnalyser.connect(ctx.destination);
 
-  // If we stretched a slice, schedule the original buffer to resume seamlessly after the
-  // crossfade ends — same gain/analyser chain, no audible gap.
-  if (stretchedBuffer && continuationOffset < incoming.buffer.duration) {
-    const contSource = ctx.createBufferSource();
-    contSource.buffer = incoming.buffer;
-    contSource.connect(inGain);
-    contSource.start(nextDownbeatCtxTime + fadeDuration, continuationOffset);
-
-    contSource.onended = () => {
-      if (incoming.sourceNode === contSource) {
-        incoming.isPlaying = false;
-        incoming.sourceNode = null;
-        incoming.gainNode = null;
-        incoming.analyserNode = null;
-        incoming.startContextTime = null;
-        incoming.elements.playBtn.disabled = false;
-        incoming.elements.stopBtn.disabled = true;
-        setStatus(incoming, 'Ready — click waveform to set cue');
-        drawFrame(incoming.elements.canvas, incoming.buffer, incoming.beatTimes, incoming.cueTime, null, null);
-        updateMixBtn();
-        maybeStopLoop();
+  const tailEpsilon = 1e-4;
+  if (continuationOffset < incoming.buffer.duration - tailEpsilon) {
+    scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset);
+  } else {
+    inSource.onended = () => {
+      if (incoming.sourceNode === inSource) {
+        finishIncomingPlayback(incoming);
       }
     };
-
-    // After the crossfade window, hand off the sourceNode reference to the continuation
-    // and fix startContextTime so the playhead tracks the original buffer correctly.
-    const msUntilContinuation = (nextDownbeatCtxTime + fadeDuration - ctx.currentTime) * 1000;
-    setTimeout(() => {
-      incoming.sourceNode       = contSource;
-      incoming.cueTime          = continuationOffset;
-      incoming.startContextTime = nextDownbeatCtxTime + fadeDuration;
-    }, msUntilContinuation + 50);
   }
 
   // Mark master's crossfade region for the visualizer.
   master.crossfadeRegion = {
     start: nextDownbeatBufferTime,
-    end: nextDownbeatBufferTime + fadeDuration,
+    end: nextDownbeatBufferTime + scheduledFade,
   };
 
   // Update incoming track state so RAF loop animates its playhead.
@@ -190,7 +203,7 @@ mixBtn.addEventListener('click', async () => {
   startLoop();
 
   // After the fade completes, clean up master state.
-  const msUntilEnd = (nextDownbeatCtxTime + fadeDuration - ctx.currentTime) * 1000;
+  const msUntilEnd = (fadeEndCtxTime - ctx.currentTime) * 1000;
   setTimeout(() => {
     master.isPlaying = false;
     master.sourceNode = null;

@@ -4,6 +4,11 @@ const FADE_BEATS   = 8;
 const CURVE_LENGTH = 128;
 const MIN_LOOKAHEAD = 0.1; // seconds
 
+/** Crossfade length in seconds from master BPM (master plays at playbackRate 1). */
+export function getFadeDurationSeconds(masterBpm) {
+  return (60 / masterBpm) * FADE_BEATS;
+}
+
 /**
  * Schedules a beat-locked equal-power crossfade from masterTrack to incomingTrack.
  *
@@ -15,6 +20,9 @@ const MIN_LOOKAHEAD = 0.1; // seconds
  *   and playbackRate is left at 1.0. The cue offset is scaled into stretched time.
  * @returns {{ nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration, inSource, inGain }}
  *   or null if no upcoming downbeat was found
+ *
+ * Incoming fade source is always stopped at `nextDownbeatCtxTime + fadeDuration` so overlap
+ * matches the equal-power window (handles stretched buffers longer/shorter than the fade).
  */
 export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffer = null) {
   const playhead = masterTrack.cueTime + (audioCtx.currentTime - masterTrack.startContextTime);
@@ -29,9 +37,7 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
   // Ensure we're not scheduling in the past.
   nextDownbeatCtxTime = Math.max(nextDownbeatCtxTime, audioCtx.currentTime + MIN_LOOKAHEAD);
 
-  // Fade duration based on master BPM (master always plays at rate 1.0).
-  const beatInterval = 60 / masterTrack.bpm;
-  const fadeDuration = beatInterval * FADE_BEATS;
+  const fadeDuration = getFadeDurationSeconds(masterTrack.bpm);
 
   // Equal-power curves.
   const fadeOut = new Float32Array(CURVE_LENGTH); // cos: 1 → 0
@@ -56,13 +62,15 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
     inSource.buffer = stretchedBuffer;
     inSource.start(nextDownbeatCtxTime, 0);
   } else {
-    // Small BPM diff path: nudge playbackRate (≤ 2% deviation, negligible pitch shift).
+    // Small BPM diff: match master tempo only during the fade; continuation plays at rate 1.
+    const r = computePlaybackRate(masterTrack.bpm, incomingTrack.bpm);
     inSource.buffer = incomingTrack.buffer;
-    inSource.playbackRate.value = computePlaybackRate(masterTrack.bpm, incomingTrack.bpm);
+    inSource.playbackRate.value = r;
     inSource.start(nextDownbeatCtxTime, incomingTrack.cueTime);
   }
 
   inSource.connect(inGain);
+  inSource.stop(nextDownbeatCtxTime + fadeDuration);
 
   // Schedule gain curves and stop master.
   masterTrack.gainNode.gain.setValueCurveAtTime(fadeOut, nextDownbeatCtxTime, fadeDuration);

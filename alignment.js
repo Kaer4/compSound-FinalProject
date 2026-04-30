@@ -58,6 +58,27 @@ export function extractSegment(audioBuffer, startTime, duration, audioCtx) {
   return out;
 }
 
+/**
+ * Trims a buffer to at most `durationSeconds` of audio (discards tail past the fade window).
+ * No-op if already shorter or equal.
+ *
+ * @param {AudioContext} audioCtx
+ * @param {AudioBuffer} audioBuffer
+ * @param {number} durationSeconds
+ * @returns {AudioBuffer}
+ */
+export function trimBufferToWallClock(audioCtx, audioBuffer, durationSeconds) {
+  const sr = audioBuffer.sampleRate;
+  const targetFrames = Math.round(durationSeconds * sr);
+  if (audioBuffer.length <= targetFrames) return audioBuffer;
+
+  const out = audioCtx.createBuffer(audioBuffer.numberOfChannels, targetFrames, sr);
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    out.copyToChannel(audioBuffer.getChannelData(ch).subarray(0, targetFrames), ch);
+  }
+  return out;
+}
+
 export async function timeStretchBuffer(audioBuffer, masterBpm, incomingBpm, audioCtx) {
   try {
     return await _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm);
