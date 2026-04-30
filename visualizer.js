@@ -72,17 +72,35 @@ function drawBeatGrid(ctx, width, height, beatTimes, duration) {
 
   for (let i = 0; i < beatTimes.length; i++) {
     const x = Math.round((beatTimes[i] / duration) * width);
-    const isDownbeat = i % 4 === 0;
+    const isPhrase   = i % 16 === 0;
+    const isDownbeat = i % 4  === 0;
 
     ctx.beginPath();
-    ctx.strokeStyle = isDownbeat ? 'rgba(255,160,0,0.6)' : 'rgba(255,160,0,0.2)';
-    ctx.lineWidth = isDownbeat ? 1.5 : 1;
-    // Downbeats reach full height; off-beats are shorter (middle 60%)
-    const yStart = isDownbeat ? 0 : height * 0.2;
-    const yEnd = isDownbeat ? height : height * 0.8;
-    ctx.moveTo(x, yStart);
-    ctx.lineTo(x, yEnd);
-    ctx.stroke();
+    if (isPhrase) {
+      ctx.strokeStyle = 'rgba(65,105,225,0.9)';
+      ctx.lineWidth   = 2;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+
+      // Phrase number label
+      const label = `P${Math.floor(i / 16) + 1}`;
+      ctx.fillStyle = 'rgba(65,105,225,0.85)';
+      ctx.font = '9px Courier New, monospace';
+      ctx.fillText(label, x + 3, 10);
+    } else if (isDownbeat) {
+      ctx.strokeStyle = 'rgba(255,160,0,0.6)';
+      ctx.lineWidth   = 1.5;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = 'rgba(255,160,0,0.2)';
+      ctx.lineWidth   = 1;
+      ctx.moveTo(x, height * 0.2);
+      ctx.lineTo(x, height * 0.8);
+      ctx.stroke();
+    }
   }
 }
 

@@ -74,15 +74,35 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
     inSource.start(nextDownbeatCtxTime, incomingTrack.cueTime);
   }
 
+  const fadeEndTime = nextDownbeatCtxTime + fadeDuration;
+
+  // EQ crossfade — bass swap:
+  // Master's highpass sweeps 20 Hz → 300 Hz (removes bass as it exits).
+  // Incoming's lowpass sweeps 300 Hz → 20000 Hz (bass arrives late, preventing mud).
+  const masterHPF = audioCtx.createBiquadFilter();
+  masterHPF.type = 'highpass';
+  masterHPF.frequency.setValueAtTime(20, audioCtx.currentTime);
+  masterTrack.gainNode.disconnect();
+  masterTrack.gainNode.connect(masterHPF);
+  masterHPF.connect(masterTrack.analyserNode);
+  masterHPF.frequency.setValueAtTime(20, nextDownbeatCtxTime);
+  masterHPF.frequency.linearRampToValueAtTime(300, fadeEndTime);
+
+  const inLPF = audioCtx.createBiquadFilter();
+  inLPF.type = 'lowpass';
+  inLPF.frequency.setValueAtTime(300, audioCtx.currentTime);
+  inLPF.frequency.setValueAtTime(300, nextDownbeatCtxTime);
+  inLPF.frequency.linearRampToValueAtTime(20000, fadeEndTime);
+  inLPF.connect(inGain);
+
   // Private gain node for inSource so it can be faded out independently of inGain.
   const inSourceFade = audioCtx.createGain();
   inSourceFade.gain.setValueAtTime(1.0, audioCtx.currentTime);
   inSource.connect(inSourceFade);
-  inSourceFade.connect(inGain);
+  inSourceFade.connect(inLPF);
 
   // Stretch path: buffer naturally ends at fadeDuration — no explicit stop needed.
   // Non-stretch path: buffer continues past the fade window, stop is required.
-  const fadeEndTime = nextDownbeatCtxTime + fadeDuration;
   if (!stretchedBuffer) {
     inSource.stop(fadeEndTime);
   }
@@ -97,5 +117,5 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
   inGain.gain.setValueCurveAtTime(fadeIn, nextDownbeatCtxTime, fadeDuration);
   masterTrack.sourceNode.stop(fadeEndTime);
 
-  return { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration, inSource, inSourceFade, inGain };
+  return { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration, inSource, inSourceFade, inGain, masterHPF };
 }
