@@ -132,6 +132,22 @@ canvas {
   gap: 16px;
 }
 
+.mix-controls label {
+  color: #aaa;
+  font-size: 0.85rem;
+}
+
+.mix-controls input[type="number"] {
+  width: 72px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #eee;
+  padding: 6px 8px;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
 #mix-btn {
   font-size: 1rem;
   padding: 10px 40px;

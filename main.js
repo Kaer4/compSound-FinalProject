@@ -1,7 +1,7 @@
 import { detectBPM } from './analysis.js';
 import { drawFrame } from './visualizer.js';
 import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock } from './alignment.js';
-import { scheduleMix, getFadeDurationSeconds } from './crossfade.js';
+import { scheduleMix, getFadeDurationSeconds, HANDOFF_S } from './crossfade.js';
 
 // Shared AudioContext — created lazily on first user gesture.
 let audioCtx = null;
@@ -18,6 +18,17 @@ let rafId = null;
 
 // Mix button reference.
 const mixBtn = document.getElementById('mix-btn');
+const fadeBeatsInput = document.getElementById('fade-beats');
+const DEFAULT_FADE_BEATS = 8;
+
+function getFadeBeats() {
+  const raw = Number(fadeBeatsInput.value);
+  const min = Number(fadeBeatsInput.min) || 2;
+  const max = Number(fadeBeatsInput.max) || 32;
+
+  if (!Number.isFinite(raw)) return DEFAULT_FADE_BEATS;
+  return Math.max(min, Math.min(max, Math.round(raw)));
+}
 
 // Track state objects.
 const tracks = {
@@ -86,12 +97,22 @@ function finishIncomingPlayback(track) {
   maybeStopLoop();
 }
 
-/** Resume incoming at `continuationOffset` after the crossfade, playbackRate 1, same gain chain. */
+/** Resume incoming at `continuationOffset` after the crossfade, playbackRate 1, same gain chain.
+ *  Uses a private contSourceFade node to micro-crossfade with the ending inSourceFade. */
 function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset) {
+  const handoffCtxTime    = fadeEndCtxTime - HANDOFF_S;
+  const handoffBufferOffset = Math.max(0, continuationOffset - HANDOFF_S);
+
+  // Private gain node: ramps 0→1 over HANDOFF_S, overlapping with inSourceFade's 1→0 ramp.
+  const contSourceFade = ctx.createGain();
+  contSourceFade.gain.setValueAtTime(0.0, handoffCtxTime);
+  contSourceFade.gain.linearRampToValueAtTime(1.0, fadeEndCtxTime);
+  contSourceFade.connect(inGain);
+
   const contSource = ctx.createBufferSource();
   contSource.buffer = incoming.buffer;
-  contSource.connect(inGain);
-  contSource.start(fadeEndCtxTime, continuationOffset);
+  contSource.connect(contSourceFade);
+  contSource.start(handoffCtxTime, handoffBufferOffset);
 
   contSource.onended = () => {
     if (incoming.sourceNode === contSource) {
@@ -116,7 +137,8 @@ mixBtn.addEventListener('click', async () => {
   mixBtn.disabled = true;
   const ctx = getAudioContext();
 
-  const fadeDuration = getFadeDurationSeconds(master.bpm);
+  const fadeBeats = getFadeBeats();
+  const fadeDuration = getFadeDurationSeconds(master.bpm, fadeBeats);
   let stretchedBuffer = null;
   let sourceAdvance;
 
@@ -149,7 +171,7 @@ mixBtn.addEventListener('click', async () => {
 
   let result;
   try {
-    result = scheduleMix(master, incoming, ctx, stretchedBuffer);
+    result = scheduleMix(master, incoming, ctx, stretchedBuffer, fadeBeats);
   } catch (err) {
     setMixStatus(`Schedule error: ${err.message}`);
     mixBtn.disabled = false;
