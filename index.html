@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BPM-Matched DJ Mixer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>DJ Mixer</h1>
+
+  <div class="mixer">
+
+    <!-- Track A -->
+    <div class="track-slot" id="slot-a">
+      <h2>Track A</h2>
+
+      <div class="load-row">
+        <select id="preset-a">
+          <option value="">— select preset —</option>
+          <option value="samples/track1.mp3">Track 1</option>
+          <option value="samples/track2.mp3">Track 2</option>
+          <option value="samples/track3.mp3">Track 3</option>
+        </select>
+        <button id="load-preset-a">Load Preset</button>
+      </div>
+
+      <div class="load-row">
+        <label for="upload-a">or upload:</label>
+        <input type="file" id="upload-a" accept=".mp3,audio/*" />
+      </div>
+
+      <div class="info-row">
+        <span class="bpm-label">BPM: <span id="bpm-a">--</span></span>
+        <span class="status" id="status-a"></span>
+      </div>
+
+      <div class="controls-row">
+        <button id="play-a" disabled>Play</button>
+        <button id="stop-a" disabled>Stop</button>
+      </div>
+
+      <canvas id="canvas-a" width="1160" height="120"></canvas>
+    </div>
+
+    <!-- Mix controls -->
+    <div class="mix-controls">
+      <button id="mix-btn" disabled>MIX</button>
+      <span id="mix-status"></span>
+    </div>
+
+    <!-- Track B -->
+    <div class="track-slot" id="slot-b">
+      <h2>Track B</h2>
+
+      <div class="load-row">
+        <select id="preset-b">
+          <option value="">— select preset —</option>
+          <option value="samples/track1.mp3">Track 1</option>
+          <option value="samples/track2.mp3">Track 2</option>
+          <option value="samples/track3.mp3">Track 3</option>
+        </select>
+        <button id="load-preset-b">Load Preset</button>
+      </div>
+
+      <div class="load-row">
+        <label for="upload-b">or upload:</label>
+        <input type="file" id="upload-b" accept=".mp3,audio/*" />
+      </div>
+
+      <div class="info-row">
+        <span class="bpm-label">BPM: <span id="bpm-b">--</span></span>
+        <span class="status" id="status-b"></span>
+      </div>
+
+      <div class="controls-row">
+        <button id="play-b" disabled>Play</button>
+        <button id="stop-b" disabled>Stop</button>
+      </div>
+
+      <canvas id="canvas-b" width="1160" height="120"></canvas>
+    </div>
+
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
