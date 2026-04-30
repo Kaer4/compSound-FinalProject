@@ -19,7 +19,12 @@ let rafId = null;
 // Mix button reference.
 const mixBtn = document.getElementById('mix-btn');
 const fadeBeatsInput = document.getElementById('fade-beats');
+const fadeBeatsDisplay = document.getElementById('fade-beats-display');
 const DEFAULT_FADE_BEATS = 8;
+
+fadeBeatsInput.addEventListener('input', () => {
+  fadeBeatsDisplay.textContent = fadeBeatsInput.value;
+});
 
 function getFadeBeats() {
   const raw = Number(fadeBeatsInput.value);
@@ -247,7 +252,7 @@ mixBtn.addEventListener('click', async () => {
 async function loadFromURL(track, url) {
   setStatus(track, 'Loading…');
   try {
-    const response = await fetch(url);
+    const response = await fetch(encodeURI(url));
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const arrayBuffer = await response.arrayBuffer();
     await decodeAndReady(track, arrayBuffer);
@@ -472,4 +477,9 @@ function setStatus(track, message) {
 
 function setMixStatus(msg) {
   document.getElementById('mix-status').textContent = msg;
+  const dot = document.getElementById('mix-dot');
+  dot.className = 'status-dot';
+  if (msg === 'Mixing…') dot.classList.add('mixing');
+  else if (msg === '') { /* hidden */ }
+  else dot.classList.add('ready');
 }

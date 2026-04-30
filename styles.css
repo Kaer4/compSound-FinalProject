@@ -5,7 +5,7 @@
 }
 
 body {
-  font-family: monospace;
+  font-family: 'Courier New', monospace;
   background: #111;
   color: #eee;
   padding: 24px;
@@ -14,154 +14,249 @@ body {
 h1 {
   text-align: center;
   margin-bottom: 24px;
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  color: #88cc00;
 }
 
 .mixer {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
   max-width: 1200px;
   margin: 0 auto;
 }
 
+/* ── Track slot ───────────────────────────────────────────── */
+
 .track-slot {
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 20px;
+  background: #161616;
+  border: 1px solid #222;
+  border-radius: 4px;
+  padding: 16px;
   width: 100%;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.track-slot h2 {
-  font-size: 1rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #aaa;
-}
+/* ── Track header row ─────────────────────────────────────── */
 
-.load-row {
+.track-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  border-bottom: 1px solid #222;
+  padding-bottom: 12px;
 }
 
-.load-row select,
-.load-row input[type="file"] {
-  flex: 1;
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  color: #eee;
-  padding: 6px 8px;
-  font-family: monospace;
-  font-size: 0.85rem;
-}
-
-.load-row button {
-  padding: 6px 14px;
-}
-
-.info-row {
+.track-info {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  font-size: 0.9rem;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.bpm-label {
-  color: #aaa;
-}
-
-.bpm-label span {
-  color: #7cf;
+.track-title {
+  color: #88cc00;
   font-size: 1.1rem;
-  font-weight: bold;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
-.status {
-  color: #888;
-  font-size: 0.8rem;
-  font-style: italic;
+.track-sub {
+  color: #444;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.controls-row {
+.track-load {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
 }
 
-button {
-  background: #2a2a2a;
-  border: 1px solid #555;
-  border-radius: 4px;
-  color: #eee;
-  cursor: pointer;
-  font-family: monospace;
-  font-size: 0.85rem;
-  padding: 7px 18px;
-  transition: background 0.15s;
+.track-load select,
+.track-load input[type="file"] {
+  background: #1e1e1e;
+  border: 1px solid #2a2a2a;
+  border-radius: 2px;
+  color: #888;
+  padding: 5px 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
 }
 
-button:hover:not(:disabled) {
-  background: #3a3a3a;
+.track-load select {
+  min-width: 160px;
 }
 
-button:disabled {
-  color: #555;
-  cursor: default;
-}
+/* ── Canvas ───────────────────────────────────────────────── */
 
 canvas {
   display: block;
-  background: #141414;
-  border: 1px solid #2a2a2a;
-  border-radius: 4px;
+  background: #0d0d0d;
+  border: 1px solid #1a1a1a;
+  border-radius: 2px;
   width: 100%;
   height: 120px;
 }
+
+/* ── Controls row (below canvas) ─────────────────────────── */
+
+.track-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.track-controls button {
+  border-color: #4169e1;
+  color: #4169e1;
+}
+
+.track-controls button:hover:not(:disabled) {
+  background: rgba(65, 105, 225, 0.12);
+  border-color: #6484e8;
+  color: #6484e8;
+}
+
+.bpm-label {
+  color: #444;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-left: 8px;
+}
+
+.bpm-label span {
+  color: #88cc00;
+  font-size: 1rem;
+  font-weight: bold;
+  margin-left: 4px;
+}
+
+.status {
+  color: #555;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  margin-left: 4px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────── */
+
+button {
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 2px;
+  color: #888;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 16px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+button:hover:not(:disabled) {
+  border-color: #4169e1;
+  color: #4169e1;
+}
+
+button:disabled {
+  color: #333;
+  border-color: #222;
+  cursor: default;
+}
+
+/* ── Mix controls ─────────────────────────────────────────── */
 
 .mix-controls {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 20px;
+  padding: 8px 0;
 }
 
 .mix-controls label {
   color: #aaa;
-  font-size: 0.85rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.mix-controls input[type="number"] {
-  width: 72px;
+.mix-controls input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 180px;
+  height: 3px;
   background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  color: #eee;
-  padding: 6px 8px;
-  font-family: monospace;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.mix-controls input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #88cc00;
+  cursor: pointer;
+}
+
+.mix-controls input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #88cc00;
+  border: none;
+  cursor: pointer;
+}
+
+#fade-beats-display {
+  color: #88cc00;
   font-size: 0.85rem;
+  min-width: 24px;
+  text-align: left;
 }
 
 #mix-btn {
-  font-size: 1rem;
-  padding: 10px 40px;
-  letter-spacing: 0.1em;
-  border-color: #f80;
-  color: #f80;
+  font-size: 0.85rem;
+  letter-spacing: 0.2em;
+  padding: 10px 36px;
+  border-color: #4169e1;
+  color: #4169e1;
 }
 
 #mix-btn:hover:not(:disabled) {
-  background: #2a1a00;
+  background: rgba(65, 105, 225, 0.12);
 }
 
+#mix-btn:disabled {
+  border-color: #2a2a2a;
+  color: #333;
+}
+
+/* ── Status dot + text ────────────────────────────────────── */
+
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 0.2s;
+}
+
+.status-dot.ready   { background: #88cc00; }
+.status-dot.mixing  { background: #f80; }
+
 #mix-status {
-  color: #888;
-  font-size: 0.8rem;
-  font-style: italic;
+  color: #555;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
 }
