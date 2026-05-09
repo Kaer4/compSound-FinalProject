@@ -76,30 +76,37 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
 
   const fadeEndTime = nextDownbeatCtxTime + fadeDuration;
 
-  // EQ crossfade — bass swap:
+  // EQ crossfade — bass swap (disabled for testing; re-enable by uncommenting):
   // Master's highpass sweeps 20 Hz → 300 Hz (removes bass as it exits).
   // Incoming's lowpass sweeps 300 Hz → 20000 Hz (bass arrives late, preventing mud).
-  const masterHPF = audioCtx.createBiquadFilter();
-  masterHPF.type = 'highpass';
-  masterHPF.frequency.setValueAtTime(20, audioCtx.currentTime);
+  // const masterHPF = audioCtx.createBiquadFilter();
+  // masterHPF.type = 'highpass';
+  // masterHPF.frequency.setValueAtTime(20, audioCtx.currentTime);
+  // masterTrack.gainNode.disconnect();
+  // masterTrack.gainNode.connect(masterHPF);
+  // masterHPF.connect(masterTrack.analyserNode);
+  // masterHPF.frequency.setValueAtTime(20, nextDownbeatCtxTime);
+  // masterHPF.frequency.linearRampToValueAtTime(300, fadeEndTime);
+
+  // const inLPF = audioCtx.createBiquadFilter();
+  // inLPF.type = 'lowpass';
+  // inLPF.frequency.setValueAtTime(300, audioCtx.currentTime);
+  // inLPF.frequency.setValueAtTime(300, nextDownbeatCtxTime);
+  // inLPF.frequency.linearRampToValueAtTime(20000, fadeEndTime);
+  // inLPF.connect(inGain);
+
+  // Dummy HPF passthrough so return value stays consistent when EQ is re-enabled.
+  const masterHPF = audioCtx.createGain();
+  masterHPF.gain.setValueAtTime(1.0, audioCtx.currentTime);
   masterTrack.gainNode.disconnect();
   masterTrack.gainNode.connect(masterHPF);
   masterHPF.connect(masterTrack.analyserNode);
-  masterHPF.frequency.setValueAtTime(20, nextDownbeatCtxTime);
-  masterHPF.frequency.linearRampToValueAtTime(300, fadeEndTime);
-
-  const inLPF = audioCtx.createBiquadFilter();
-  inLPF.type = 'lowpass';
-  inLPF.frequency.setValueAtTime(300, audioCtx.currentTime);
-  inLPF.frequency.setValueAtTime(300, nextDownbeatCtxTime);
-  inLPF.frequency.linearRampToValueAtTime(20000, fadeEndTime);
-  inLPF.connect(inGain);
 
   // Private gain node for inSource so it can be faded out independently of inGain.
   const inSourceFade = audioCtx.createGain();
   inSourceFade.gain.setValueAtTime(1.0, audioCtx.currentTime);
   inSource.connect(inSourceFade);
-  inSourceFade.connect(inLPF);
+  inSourceFade.connect(inGain); // direct — no LPF
 
   // Stretch path: buffer naturally ends at fadeDuration — no explicit stop needed.
   // Non-stretch path: buffer continues past the fade window, stop is required.
