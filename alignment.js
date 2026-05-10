@@ -125,8 +125,8 @@ async function _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm) {
 // ---------------------------------------------------------------------------
 // Pure-JS fallback — same algorithm as the AudioWorklet, runs on main thread
 // ---------------------------------------------------------------------------
-const PV_N  = 4096; // FFT size (keep in sync with worklets/phase-vocoder.js N)
-const PV_Ha = 1024; // analysis hop N/4 (75% overlap — matches worklet Ha)
+export const PV_N  = 4096; // FFT size (keep in sync with worklets/phase-vocoder.js N)
+export const PV_Ha = 1024; // analysis hop N/4 (75% overlap — matches worklet Ha)
 
 async function _timeStretchPureJS(audioBuffer, masterBpm, incomingBpm, audioCtx) {
   const stretchFactor = incomingBpm / masterBpm;
