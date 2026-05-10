@@ -128,6 +128,27 @@ async function _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm) {
 export const PV_N  = 4096; // FFT size (keep in sync with worklets/phase-vocoder.js N)
 export const PV_Ha = 1024; // analysis hop N/4 (75% overlap — matches worklet Ha)
 
+/**
+ * Returns the duration (seconds) of trailing silence at the end of an AudioBuffer.
+ * Scans all channels and returns the worst-case (longest) tail across channels.
+ * Works for both the worklet path (which can leave ~N samples of startup-latency
+ * silence at the end) and the pure-JS fallback (shorter tail, depends on frame count).
+ *
+ * @param {AudioBuffer} audioBuffer
+ * @param {number} [threshold=1e-4] - amplitude below which a sample is considered silent
+ * @returns {number} tail silence in seconds
+ */
+export function measureTailSilence(audioBuffer, threshold = 1e-4) {
+  let lastNonSilent = 0;
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const data = audioBuffer.getChannelData(ch);
+    let i = data.length - 1;
+    while (i > lastNonSilent && Math.abs(data[i]) < threshold) i--;
+    if (i > lastNonSilent) lastNonSilent = i;
+  }
+  return (audioBuffer.length - 1 - lastNonSilent) / audioBuffer.sampleRate;
+}
+
 async function _timeStretchPureJS(audioBuffer, masterBpm, incomingBpm, audioCtx) {
   const stretchFactor = incomingBpm / masterBpm;
   const Hs = Math.max(1, Math.round(PV_Ha * stretchFactor));
