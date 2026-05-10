@@ -192,9 +192,11 @@ mixBtn.addEventListener('click', async () => {
   // directly so the handoff always completes before the silence begins, regardless of path.
   // A 10 ms safety margin ensures the ramp is fully settled before the PV goes quiet.
   // Cap at fadeDuration − HANDOFF_S so rampEndTime always stays within the fade window.
+  // Math.max(0, …) covers very short fades where fadeDuration ≤ HANDOFF_S.
   const TAIL_MARGIN_S = 0.01;
+  const maxTailGapS = Math.max(0, fadeDuration - HANDOFF_S);
   const tailGapS = stretchedBuffer
-    ? Math.min(stretchedTailS + TAIL_MARGIN_S, fadeDuration - HANDOFF_S)
+    ? Math.min(stretchedTailS + TAIL_MARGIN_S, maxTailGapS)
     : 0;
   // stretchRate: how fast the PV advances through the original buffer relative to wall clock.
   // Used to position contSource so it picks up exactly where the PV left off.

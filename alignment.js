@@ -167,9 +167,21 @@ export const PV_Ha = 1024; // analysis hop N/4 (75% overlap — matches worklet 
  *
  * @param {AudioBuffer} audioBuffer
  * @param {number} [threshold=1e-4] - amplitude below which a sample is considered silent
- * @returns {number} tail silence in seconds
+ * @returns {number} tail silence in seconds (capped; see MAX_TAIL_SILENCE_S)
  */
+const MAX_TAIL_SILENCE_S = 0.3;
+
 export function measureTailSilence(audioBuffer, threshold = 1e-4) {
+  let peak = 0;
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const data = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      const a = Math.abs(data[i]);
+      if (a > peak) peak = a;
+    }
+  }
+  if (peak < threshold) return 0;
+
   let lastNonSilent = 0;
   for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
     const data = audioBuffer.getChannelData(ch);
@@ -177,7 +189,8 @@ export function measureTailSilence(audioBuffer, threshold = 1e-4) {
     while (i > lastNonSilent && Math.abs(data[i]) < threshold) i--;
     if (i > lastNonSilent) lastNonSilent = i;
   }
-  return (audioBuffer.length - 1 - lastNonSilent) / audioBuffer.sampleRate;
+  const raw = (audioBuffer.length - 1 - lastNonSilent) / audioBuffer.sampleRate;
+  return Math.min(raw, MAX_TAIL_SILENCE_S);
 }
 
 async function _timeStretchPureJS(audioBuffer, masterBpm, incomingBpm, audioCtx) {
