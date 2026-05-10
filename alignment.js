@@ -80,36 +80,6 @@ export function trimBufferToWallClock(audioCtx, audioBuffer, durationSeconds) {
   return out;
 }
 
-/**
- * Scales a buffer so its peak amplitude is at most 1.0.
- * The PV can produce samples > 1 due to constructive interference after phase manipulation;
- * normalizing prevents the combined master+incoming signal from clipping at the destination.
- * No-op if peak is already ≤ 1.0.
- *
- * @param {AudioContext} audioCtx
- * @param {AudioBuffer} audioBuffer
- * @returns {AudioBuffer}
- */
-export function normalizeBuffer(audioBuffer) {
-  let peak = 0;
-  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
-    const data = audioBuffer.getChannelData(ch);
-    for (let i = 0; i < data.length; i++) {
-      const abs = Math.abs(data[i]);
-      if (abs > peak) peak = abs;
-    }
-  }
-  if (peak <= 1.0) return audioBuffer;
-
-  // Scale in place — avoids creating a new AudioBuffer object, which can cause
-  // playback issues in some browsers when the source buffer came from an OfflineAudioContext.
-  const scale = 1 / peak;
-  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
-    const data = audioBuffer.getChannelData(ch);
-    for (let i = 0; i < data.length; i++) data[i] *= scale;
-  }
-  return audioBuffer;
-}
 
 export async function timeStretchBuffer(audioBuffer, masterBpm, incomingBpm, audioCtx) {
   try {
