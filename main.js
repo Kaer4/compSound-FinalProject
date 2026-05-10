@@ -212,7 +212,7 @@ mixBtn.addEventListener('click', async () => {
     return;
   }
 
-  const { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration: scheduledFade, inSource, inGain, masterHPF } = result;
+  const { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration: scheduledFade, inSource, inGain } = result;
   const fadeEndCtxTime = nextDownbeatCtxTime + scheduledFade;
 
   // Wire AnalyserNode for the incoming track, routing through its effects chain if present.
@@ -224,13 +224,6 @@ mixBtn.addEventListener('click', async () => {
     connectChain(incoming.effectsChain, inGain, inAnalyser);
   } else {
     inGain.connect(inAnalyser);
-  }
-
-  // Re-insert master effects chain after scheduleMix rerouted gainNode → masterHPF → analyserNode.
-  // New path: gainNode → masterHPF (passthrough) → effectsChain → analyserNode.
-  if (master.effectsChain) {
-    masterHPF.disconnect();
-    connectChain(master.effectsChain, masterHPF, master.analyserNode);
   }
 
   const tailEpsilon = 1e-4;
@@ -266,8 +259,6 @@ mixBtn.addEventListener('click', async () => {
   // After the fade completes, clean up master and rewire incoming effects chain.
   const msUntilEnd = (fadeEndCtxTime - ctx.currentTime) * 1000;
   setTimeout(() => {
-    masterHPF.disconnect();
-    // Disconnect master effects chain — its gainNode was already rerouted in scheduleMix.
     disconnectChain(master.effectsChain);
     master.isPlaying = false;
     master.sourceNode = null;

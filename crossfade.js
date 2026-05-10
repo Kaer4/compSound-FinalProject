@@ -81,7 +81,7 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
 
   const fadeEndTime = nextDownbeatCtxTime + fadeDuration;
 
-  // EQ crossfade — bass swap (disabled for testing; re-enable by uncommenting):
+  // EQ crossfade — bass swap (disabled; re-enable by uncommenting and restoring masterHPF wiring):
   // Master's highpass sweeps 20 Hz → 300 Hz (removes bass as it exits).
   // Incoming's lowpass sweeps 300 Hz → 20000 Hz (bass arrives late, preventing mud).
   // const masterHPF = audioCtx.createBiquadFilter();
@@ -99,13 +99,6 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
   // inLPF.frequency.setValueAtTime(300, nextDownbeatCtxTime);
   // inLPF.frequency.linearRampToValueAtTime(20000, fadeEndTime);
   // inLPF.connect(inGain);
-
-  // Dummy HPF passthrough so return value stays consistent when EQ is re-enabled.
-  const masterHPF = audioCtx.createGain();
-  masterHPF.gain.setValueAtTime(1.0, audioCtx.currentTime);
-  masterTrack.gainNode.disconnect();
-  masterTrack.gainNode.connect(masterHPF);
-  masterHPF.connect(masterTrack.analyserNode);
 
   // Private gain node for inSource so it can be faded out independently of inGain.
   const inSourceFade = audioCtx.createGain();
@@ -137,5 +130,5 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
   inGain.gain.setValueAtTime(fadeIn[CURVE_LENGTH - 1], fadeEndTime + 1 / audioCtx.sampleRate);
   masterTrack.sourceNode.stop(fadeEndTime);
 
-  return { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration, inSource, inSourceFade, inGain, masterHPF };
+  return { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration, inSource, inSourceFade, inGain };
 }
