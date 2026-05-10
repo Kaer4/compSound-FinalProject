@@ -132,6 +132,9 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
   masterTrack.gainNode.gain.linearRampToValueAtTime(fadeOut[0], nextDownbeatCtxTime);
   masterTrack.gainNode.gain.setValueCurveAtTime(fadeOut, nextDownbeatCtxTime, fadeDuration);
   inGain.gain.setValueCurveAtTime(fadeIn, nextDownbeatCtxTime, fadeDuration);
+  // Explicitly hold the post-curve value. Some browsers incorrectly drop the gain to 0
+  // after setValueCurveAtTime instead of holding the last sample — this anchors it.
+  inGain.gain.setValueAtTime(fadeIn[CURVE_LENGTH - 1], fadeEndTime + 1 / audioCtx.sampleRate);
   masterTrack.sourceNode.stop(fadeEndTime);
 
   return { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration, inSource, inSourceFade, inGain, masterHPF };
