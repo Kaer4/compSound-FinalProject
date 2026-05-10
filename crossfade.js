@@ -127,9 +127,9 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
   inSourceFade.gain.linearRampToValueAtTime(0.0, rampEndTime);
 
   // Schedule gain curves and stop master.
-  // Pre-ramp master from 1.0 → fadeOut[0] over 10 ms so the curve entry is smooth (no pop).
-  masterTrack.gainNode.gain.setValueAtTime(1.0, nextDownbeatCtxTime - 0.01);
-  masterTrack.gainNode.gain.linearRampToValueAtTime(fadeOut[0], nextDownbeatCtxTime);
+  // fadeOut[0] = 1.0 (normalized curves), so the master gain is continuous at the curve entry —
+  // no pre-ramp needed. Scheduling both linearRampToValueAtTime and setValueCurveAtTime at the
+  // same sample caused a one-sample discontinuity pop in some browsers.
   masterTrack.gainNode.gain.setValueCurveAtTime(fadeOut, nextDownbeatCtxTime, fadeDuration);
   inGain.gain.setValueCurveAtTime(fadeIn, nextDownbeatCtxTime, fadeDuration);
   // Explicitly hold the post-curve value. Some browsers incorrectly drop the gain to 0
