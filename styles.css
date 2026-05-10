@@ -356,7 +356,7 @@ button:disabled {
   font-size: 0.6rem;
   letter-spacing: 0.08em;
   color: #555;
-  width: 36px;
+  width: 64px;
   flex-shrink: 0;
   text-transform: uppercase;
 }
@@ -413,7 +413,30 @@ button:disabled {
   transition: all 0.1s;
 }
 .kill-btn:hover  { border-color: #ff4444; color: #ff4444; }
-.kill-btn.active { border-color: #ff4444; color: #ff4444; background: rgba(255,68,68,0.1); }
+.kill-btn.active { border-color: #ff4444; color: #ff4444; background: rgba(255,68,68,0.12); }
+
+/* ── EQ footer + reset button ────────────────────────────────────────────────── */
+
+.eq-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #1e1e1e;
+}
+
+.reset-btn {
+  font-family: 'Courier New', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.08em;
+  background: transparent;
+  border: 1px solid #333;
+  color: #555;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.reset-btn:hover { border-color: #4169e1; color: #4169e1; }
 
 /* ── Generic parameter row ───────────────────────────────────────────────────── */
 
