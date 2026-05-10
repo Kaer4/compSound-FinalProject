@@ -103,6 +103,23 @@ function autocorrelationBPM(onsets, sampleRate) {
     }
   }
 
+  // Octave-correction: songs with strong 8th-note patterns often score higher at
+  // the half-beat lag (2× BPM) than the true beat lag. If doubling the lag
+  // (halving the BPM) is still within the valid range and scores ≥ 80% of the
+  // best correlation, the detected tempo is almost certainly a 2× harmonic error
+  // — prefer the lower, more likely fundamental tempo.
+  const doubleLag = bestLag * 2;
+  if (doubleLag <= lagMax) {
+    let doubleCorr = 0;
+    const limit = n - doubleLag;
+    for (let i = 0; i < limit; i++) {
+      doubleCorr += decimated[i] * decimated[i + doubleLag];
+    }
+    if (doubleCorr >= bestCorr * 0.8) {
+      bestLag = doubleLag;
+    }
+  }
+
   const bpm = (reducedRate * 60) / bestLag;
   return Math.round(bpm * 10) / 10;
 }
