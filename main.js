@@ -1,6 +1,6 @@
 import { detectBPM } from './analysis.js';
 import { drawFrame } from './visualizer.js';
-import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock, PV_N, PV_Ha } from './alignment.js';
+import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock, measureTailSilence } from './alignment.js';
 import { scheduleMix, getFadeDurationSeconds, HANDOFF_S } from './crossfade.js';
 import { createEffectsChain, connectChain, disconnectChain, resetEffectsChain } from './effects.js';
 import { buildEffectsPanel } from './effects-ui.js';
@@ -172,12 +172,12 @@ mixBtn.addEventListener('click', async () => {
 
   const continuationOffset = incoming.cueTime + sourceAdvance;
 
-  // Tail-gap guard: the phase vocoder discards the last (N − Ha) input samples because
-  // they don't fill a complete analysis frame. Their output is zeros, leaving ~61ms of
-  // silence at the end of stretchedBuffer. Both inSourceFade and contSourceFade ramps
-  // complete at fadeEndTime − tailGapS so the handoff finishes before that silence.
-  const stretchFactor = stretchedBuffer ? incoming.bpm / master.bpm : 1;
-  const tailGapS = stretchedBuffer ? (PV_N - PV_Ha) / ctx.sampleRate * stretchFactor : 0;
+  // Tail-gap guard: the PV leaves trailing silence at the end of stretchedBuffer — the
+  // exact amount varies by BPM ratio and which path ran (worklet vs pure-JS). Measure it
+  // directly so the handoff always completes before the silence begins, regardless of path.
+  // A 10 ms safety margin ensures the ramp is fully settled before the PV goes quiet.
+  const TAIL_MARGIN_S = 0.01;
+  const tailGapS = stretchedBuffer ? measureTailSilence(stretchedBuffer) + TAIL_MARGIN_S : 0;
 
   // Re-validate master after the async stretch — it may have ended during processing.
   if (!master.isPlaying || !master.gainNode || !master.sourceNode) {
