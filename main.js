@@ -111,7 +111,7 @@ function finishIncomingPlayback(track) {
 function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset, tailGapS = 0) {
   const rampEndCtxTime      = fadeEndCtxTime - tailGapS;
   const handoffCtxTime      = rampEndCtxTime - HANDOFF_S;
-  const handoffBufferOffset = Math.max(0, continuationOffset - HANDOFF_S);
+  const handoffBufferOffset = Math.max(0, continuationOffset - HANDOFF_S - tailGapS);
 
   // Private gain node: ramps 0→1 over HANDOFF_S, ending at rampEndCtxTime (before PV silence).
   const contSourceFade = ctx.createGain();
@@ -133,7 +133,7 @@ function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, con
   const msUntilRampEnd = (rampEndCtxTime - ctx.currentTime) * 1000;
   setTimeout(() => {
     incoming.sourceNode = contSource;
-    incoming.cueTime = continuationOffset;
+    incoming.cueTime = continuationOffset - tailGapS;
     incoming.startContextTime = rampEndCtxTime;
   }, msUntilRampEnd + 50);
 }
