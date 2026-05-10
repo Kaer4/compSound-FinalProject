@@ -2,6 +2,7 @@
 // Self-contained — no imports (worklet scope restriction).
 // Algorithm: STFT analysis → phase manipulation → ISTFT synthesis (overlap-add).
 // Stretches time without changing pitch.
+// Processes all input channels independently (stereo-safe).
 
 const N  = 2048; // FFT size (power of 2)
 const Ha = 512;  // analysis hop = N/4 → 75% overlap, satisfies COLA for Hann window
@@ -81,6 +82,23 @@ function wrap(p) {
 }
 
 // ---------------------------------------------------------------------------
+// Per-channel state factory
+// ---------------------------------------------------------------------------
+function makeChannelState() {
+  const bins = N / 2 + 1;
+  return {
+    inputBuf:      new Float32Array(N * 4),
+    outputBuf:     new Float32Array(N * 8),
+    inputWritePos:  0,
+    inputReadPos:   0,
+    outputWritePos: 0,
+    outputReadPos:  0,
+    prevAnalPhase:  new Float32Array(bins),
+    synthPhase:     new Float32Array(bins),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Processor
 // ---------------------------------------------------------------------------
 class PhaseVocoderProcessor extends AudioWorkletProcessor {
@@ -92,105 +110,104 @@ class PhaseVocoderProcessor extends AudioWorkletProcessor {
 
     this.hann = makeHann(N);
 
-    // Circular input accumulation buffer (4× frame size is plenty).
-    this.inputBuf  = new Float32Array(N * 4);
-    this.inputWritePos = 0;
-    this.inputReadPos  = 0;
+    // Per-channel state — allocated lazily once we know the channel count.
+    this.channelStates = null;
 
-    // Linear output OLA accumulation buffer (8× to handle worst-case stretch).
-    this.outputBuf      = new Float32Array(N * 8);
-    this.outputWritePos = 0; // where the next OLA frame is written
-    this.outputReadPos  = 0; // where the next 128-sample output block is read
-
-    // Phase state.
-    const bins = N / 2 + 1;
-    this.prevAnalPhase = new Float32Array(bins);
-    this.synthPhase    = new Float32Array(bins);
-
-    // Working buffers (reused each frame to avoid GC pressure).
+    // Working FFT buffers — reused each frame (overwritten per channel, safe for sequential processing).
     this.re    = new Float32Array(N);
     this.im    = new Float32Array(N);
     this.frame = new Float32Array(N);
   }
 
   process(inputs, outputs) {
-    const input  = inputs[0][0];   // mono input channel
-    const output = outputs[0][0];  // mono output channel
-    const blockSize = output ? output.length : 128;
+    // Determine actual channel count from the connected source.
+    const numChannels = (inputs[0] && inputs[0].length) ? inputs[0].length : 1;
 
-    if (!input || !output) return true;
-
-    // --- 1. Accumulate input ---
-    const inBufLen = this.inputBuf.length;
-    for (let i = 0; i < input.length; i++) {
-      this.inputBuf[this.inputWritePos % inBufLen] = input[i];
-      this.inputWritePos++;
+    // Allocate per-channel state lazily (or reallocate if channel count changed).
+    if (!this.channelStates || this.channelStates.length !== numChannels) {
+      this.channelStates = Array.from({ length: numChannels }, makeChannelState);
     }
 
-    // --- 2. Process frames whenever we have enough input ---
-    while (this.inputWritePos - this.inputReadPos >= N) {
-      // Extract windowed analysis frame.
-      for (let i = 0; i < N; i++) {
-        this.frame[i] = this.inputBuf[(this.inputReadPos + i) % inBufLen] * this.hann[i];
-      }
-      this.inputReadPos += Ha;
+    for (let ch = 0; ch < numChannels; ch++) {
+      const input  = inputs[0][ch];
+      const output = outputs[0][ch];
+      if (!input || !output) continue;
 
-      // Copy into FFT working buffers.
-      this.re.set(this.frame);
-      this.im.fill(0);
+      const s = this.channelStates[ch];
+      const blockSize = output.length;
 
-      fft(this.re, this.im);
-
-      // Phase vocoder: compute true instantaneous frequencies and advance synthesis phases.
-      const bins = N / 2 + 1;
-      for (let k = 0; k < bins; k++) {
-        const mag      = Math.sqrt(this.re[k] * this.re[k] + this.im[k] * this.im[k]);
-        const analPhase = Math.atan2(this.im[k], this.re[k]);
-
-        const deltaPhase  = analPhase - this.prevAnalPhase[k];
-        const expected    = (2 * Math.PI * k * Ha) / N;
-        const trueFreq    = (expected + wrap(deltaPhase - expected)) / Ha;
-
-        this.prevAnalPhase[k] = analPhase;
-        this.synthPhase[k]   += trueFreq * this.Hs;
-
-        // Reconstruct bin with original magnitude and new synthesis phase.
-        this.re[k] = mag * Math.cos(this.synthPhase[k]);
-        this.im[k] = mag * Math.sin(this.synthPhase[k]);
+      // --- 1. Accumulate input ---
+      const inBufLen = s.inputBuf.length;
+      for (let i = 0; i < input.length; i++) {
+        s.inputBuf[s.inputWritePos % inBufLen] = input[i];
+        s.inputWritePos++;
       }
 
-      // Mirror conjugate-symmetric upper bins for real IFFT.
-      for (let k = bins; k < N; k++) {
-        const mirror = N - k;
-        this.re[k] =  this.re[mirror];
-        this.im[k] = -this.im[mirror];
+      // --- 2. Process frames whenever we have enough input ---
+      while (s.inputWritePos - s.inputReadPos >= N) {
+        // Extract windowed analysis frame.
+        for (let i = 0; i < N; i++) {
+          this.frame[i] = s.inputBuf[(s.inputReadPos + i) % inBufLen] * this.hann[i];
+        }
+        s.inputReadPos += Ha;
+
+        // Copy into FFT working buffers.
+        this.re.set(this.frame);
+        this.im.fill(0);
+
+        fft(this.re, this.im);
+
+        // Phase vocoder: compute true instantaneous frequencies and advance synthesis phases.
+        const bins = N / 2 + 1;
+        for (let k = 0; k < bins; k++) {
+          const mag       = Math.sqrt(this.re[k] * this.re[k] + this.im[k] * this.im[k]);
+          const analPhase = Math.atan2(this.im[k], this.re[k]);
+
+          const deltaPhase = analPhase - s.prevAnalPhase[k];
+          const expected   = (2 * Math.PI * k * Ha) / N;
+          const trueFreq   = (expected + wrap(deltaPhase - expected)) / Ha;
+
+          s.prevAnalPhase[k] = analPhase;
+          s.synthPhase[k]   += trueFreq * this.Hs;
+
+          // Reconstruct bin with original magnitude and new synthesis phase.
+          this.re[k] = mag * Math.cos(s.synthPhase[k]);
+          this.im[k] = mag * Math.sin(s.synthPhase[k]);
+        }
+
+        // Mirror conjugate-symmetric upper bins for real IFFT.
+        for (let k = bins; k < N; k++) {
+          const mirror = N - k;
+          this.re[k] =  this.re[mirror];
+          this.im[k] = -this.im[mirror];
+        }
+
+        ifft(this.re, this.im);
+
+        // Apply synthesis Hann window and overlap-add into output buffer.
+        const outBufLen = s.outputBuf.length;
+        for (let i = 0; i < N; i++) {
+          const pos = (s.outputWritePos + i) % outBufLen;
+          s.outputBuf[pos] += this.re[i] * this.hann[i];
+        }
+        s.outputWritePos += this.Hs;
       }
 
-      ifft(this.re, this.im);
+      // --- 3. Copy output block ---
+      const outBufLen = s.outputBuf.length;
+      const available = s.outputWritePos - s.outputReadPos;
+      const toCopy    = Math.min(blockSize, available);
 
-      // Apply synthesis Hann window and overlap-add into output buffer.
-      const outBufLen = this.outputBuf.length;
-      for (let i = 0; i < N; i++) {
-        const pos = (this.outputWritePos + i) % outBufLen;
-        this.outputBuf[pos] += this.re[i] * this.hann[i];
+      for (let i = 0; i < toCopy; i++) {
+        const pos   = (s.outputReadPos + i) % outBufLen;
+        output[i]   = s.outputBuf[pos];
+        s.outputBuf[pos] = 0; // clear after reading
       }
-      this.outputWritePos += this.Hs;
+      // Zero-pad if output buffer hasn't filled yet (startup latency).
+      for (let i = toCopy; i < blockSize; i++) output[i] = 0;
+
+      s.outputReadPos += toCopy;
     }
-
-    // --- 3. Copy output block ---
-    const outBufLen = this.outputBuf.length;
-    const available = this.outputWritePos - this.outputReadPos;
-    const toCopy    = Math.min(blockSize, available);
-
-    for (let i = 0; i < toCopy; i++) {
-      const pos   = (this.outputReadPos + i) % outBufLen;
-      output[i]   = this.outputBuf[pos];
-      this.outputBuf[pos] = 0; // clear after reading
-    }
-    // Zero-pad if output buffer hasn't filled yet (startup latency).
-    for (let i = toCopy; i < blockSize; i++) output[i] = 0;
-
-    this.outputReadPos += toCopy;
 
     return true; // keep processor alive
   }
