@@ -4,7 +4,7 @@
 
 /**
  * Computes the playback rate to apply to the incoming track so its tempo
- * matches the master track's tempo. Only used for small BPM differences (≤ 2%).
+ * matches the master track's tempo. Used when BPM difference is within `needsTimeStretch` (playback-rate path).
  */
 export function computePlaybackRate(masterBpm, incomingBpm) {
   const ratio = masterBpm / incomingBpm;
@@ -13,10 +13,11 @@ export function computePlaybackRate(masterBpm, incomingBpm) {
 
 /**
  * Returns true when the BPM difference warrants phase vocoder time-stretching
- * (> 2% deviation from master tempo).
+ * (> ~3.5% deviation from master tempo).
  */
 export function needsTimeStretch(masterBpm, incomingBpm) {
-  return Math.abs(1 - masterBpm / incomingBpm) > 0.02;
+  // Slightly wider than 2% so more mixes use playbackRate (less phase-vocoder time on ear).
+  return Math.abs(1 - masterBpm / incomingBpm) > 0.035;
 }
 
 /**
@@ -124,8 +125,8 @@ async function _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm) {
 // ---------------------------------------------------------------------------
 // Pure-JS fallback — same algorithm as the AudioWorklet, runs on main thread
 // ---------------------------------------------------------------------------
-const PV_N  = 2048; // FFT size
-const PV_Ha = 512;  // analysis hop (N/4, 75% overlap — satisfies COLA for Hann)
+const PV_N  = 4096; // FFT size (keep in sync with worklets/phase-vocoder.js N)
+const PV_Ha = 1024; // analysis hop N/4 (75% overlap — matches worklet Ha)
 
 async function _timeStretchPureJS(audioBuffer, masterBpm, incomingBpm, audioCtx) {
   const stretchFactor = incomingBpm / masterBpm;

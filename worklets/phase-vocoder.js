@@ -4,8 +4,8 @@
 // Stretches time without changing pitch.
 // Processes all input channels independently (stereo-safe).
 
-const N  = 2048; // FFT size (power of 2)
-const Ha = 512;  // analysis hop = N/4 → 75% overlap, satisfies COLA for Hann window
+const N  = 4096; // FFT size (power of 2) — finer bins than 2048 for cleaner mix material
+const Ha = 1024; // analysis hop = N/4 → 75% overlap (aligned with alignment.js PV_*)
 
 // ---------------------------------------------------------------------------
 // Hann window
@@ -84,11 +84,14 @@ function wrap(p) {
 // ---------------------------------------------------------------------------
 // Per-channel state factory
 // ---------------------------------------------------------------------------
+const NORM_EPS = 1e-8;
+
 function makeChannelState() {
   const bins = N / 2 + 1;
   return {
     inputBuf:      new Float32Array(N * 4),
     outputBuf:     new Float32Array(N * 8),
+    normBuf:       new Float32Array(N * 8), // Hann² OLA weights — parity with alignment.js _timeStretchPureJS
     inputWritePos:  0,
     inputReadPos:   0,
     outputWritePos: 0,
@@ -184,11 +187,13 @@ class PhaseVocoderProcessor extends AudioWorkletProcessor {
 
         ifft(this.re, this.im);
 
-        // Apply synthesis Hann window and overlap-add into output buffer.
+        // Apply synthesis Hann window and overlap-add into output buffer + norm weights.
         const outBufLen = s.outputBuf.length;
         for (let i = 0; i < N; i++) {
           const pos = (s.outputWritePos + i) % outBufLen;
-          s.outputBuf[pos] += this.re[i] * this.hann[i];
+          const wi = this.hann[i];
+          s.outputBuf[pos] += this.re[i] * wi;
+          s.normBuf[pos] += wi * wi;
         }
         s.outputWritePos += this.Hs;
       }
@@ -200,8 +205,10 @@ class PhaseVocoderProcessor extends AudioWorkletProcessor {
 
       for (let i = 0; i < toCopy; i++) {
         const pos   = (s.outputReadPos + i) % outBufLen;
-        output[i]   = s.outputBuf[pos];
-        s.outputBuf[pos] = 0; // clear after reading
+        const den   = s.normBuf[pos];
+        output[i]   = den > NORM_EPS ? s.outputBuf[pos] / den : 0;
+        s.outputBuf[pos] = 0;
+        s.normBuf[pos] = 0;
       }
       // Zero-pad if output buffer hasn't filled yet (startup latency).
       for (let i = toCopy; i < blockSize; i++) output[i] = 0;
