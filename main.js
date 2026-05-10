@@ -175,7 +175,7 @@ mixBtn.addEventListener('click', async () => {
       // proportionally, which can push near-threshold tail samples below the 1e-4 cutoff
       // and artificially inflate the reported tail duration.
       stretchedTailS = measureTailSilence(stretchedBuffer);
-      stretchedBuffer = normalizeBuffer(ctx, stretchedBuffer);
+      stretchedBuffer = normalizeBuffer(stretchedBuffer);
     } catch (err) {
       setMixStatus(`Stretch error: ${err.message}`);
       mixBtn.disabled = false;

@@ -90,7 +90,7 @@ export function trimBufferToWallClock(audioCtx, audioBuffer, durationSeconds) {
  * @param {AudioBuffer} audioBuffer
  * @returns {AudioBuffer}
  */
-export function normalizeBuffer(audioCtx, audioBuffer) {
+export function normalizeBuffer(audioBuffer) {
   let peak = 0;
   for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
     const data = audioBuffer.getChannelData(ch);
@@ -101,14 +101,14 @@ export function normalizeBuffer(audioCtx, audioBuffer) {
   }
   if (peak <= 1.0) return audioBuffer;
 
-  const out = audioCtx.createBuffer(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
+  // Scale in place — avoids creating a new AudioBuffer object, which can cause
+  // playback issues in some browsers when the source buffer came from an OfflineAudioContext.
   const scale = 1 / peak;
   for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
-    const src = audioBuffer.getChannelData(ch);
-    const dst = out.getChannelData(ch);
-    for (let i = 0; i < src.length; i++) dst[i] = src[i] * scale;
+    const data = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) data[i] *= scale;
   }
-  return out;
+  return audioBuffer;
 }
 
 export async function timeStretchBuffer(audioBuffer, masterBpm, incomingBpm, audioCtx) {
