@@ -176,7 +176,8 @@ mixBtn.addEventListener('click', async () => {
   // they don't fill a complete analysis frame. Their output is zeros, leaving ~61ms of
   // silence at the end of stretchedBuffer. Both inSourceFade and contSourceFade ramps
   // complete at fadeEndTime − tailGapS so the handoff finishes before that silence.
-  const tailGapS = stretchedBuffer ? (PV_N - PV_Ha) / ctx.sampleRate : 0;
+  const stretchFactor = stretchedBuffer ? incoming.bpm / master.bpm : 1;
+  const tailGapS = stretchedBuffer ? (PV_N - PV_Ha) / ctx.sampleRate * stretchFactor : 0;
 
   // Re-validate master after the async stretch — it may have ended during processing.
   if (!master.isPlaying || !master.gainNode || !master.sourceNode) {
