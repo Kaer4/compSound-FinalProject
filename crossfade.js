@@ -4,6 +4,8 @@ const FADE_BEATS   = 8;
 const CURVE_LENGTH = 128;
 const MIN_LOOKAHEAD = 0.1; // seconds
 const FADE_BIAS_POWER = 0.4; // stronger bias — incoming is dominant by ~17% of the fade
+/** Scale both legs during the fade to leave headroom when two full-scale tracks sum at the bus. */
+const CROSSFADE_PEAK_HEADROOM = 0.94;
 export const HANDOFF_S = 0.03; // micro-crossfade between stretched slice and continuation
 
 /** Crossfade length in seconds from master BPM (master plays at playbackRate 1). */
@@ -49,8 +51,8 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
     // Bias fade progression so incoming gains presence earlier while preserving
     // equal-power pairing (sin/cos of the same angle).
     const shapedT = Math.pow(t, FADE_BIAS_POWER);
-    fadeOut[i] = Math.cos(shapedT * Math.PI / 2);
-    fadeIn[i]  = Math.sin(shapedT * Math.PI / 2);
+    fadeOut[i] = Math.cos(shapedT * Math.PI / 2) * CROSSFADE_PEAK_HEADROOM;
+    fadeIn[i]  = Math.sin(shapedT * Math.PI / 2) * CROSSFADE_PEAK_HEADROOM;
   }
 
   // Build incoming audio graph — gain starts at 0 so there's no pop at entry.
