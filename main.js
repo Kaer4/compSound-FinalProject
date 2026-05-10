@@ -2,6 +2,8 @@ import { detectBPM } from './analysis.js';
 import { drawFrame } from './visualizer.js';
 import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock } from './alignment.js';
 import { scheduleMix, getFadeDurationSeconds, HANDOFF_S } from './crossfade.js';
+import { createEffectsChain, connectChain, disconnectChain } from './effects.js';
+import { buildEffectsPanel } from './effects-ui.js';
 
 // Shared AudioContext — created lazily on first user gesture.
 let audioCtx = null;
@@ -55,6 +57,7 @@ function makeTrack(id) {
     startContextTime: null,
     crossfadeRegion: null,
     cueClickHandler: null,
+    effectsChain: null,
     elements: {
       presetSelect: document.getElementById(`preset-${id}`),
       loadPresetBtn: document.getElementById(`load-preset-${id}`),
@@ -229,10 +232,12 @@ mixBtn.addEventListener('click', async () => {
   setMixStatus('Mixing…');
   startLoop();
 
-  // After the fade completes, clean up master state.
+  // After the fade completes, clean up master and rewire incoming effects chain.
   const msUntilEnd = (fadeEndCtxTime - ctx.currentTime) * 1000;
   setTimeout(() => {
     masterHPF.disconnect();
+    // Disconnect master effects chain — its gainNode was already rerouted in scheduleMix.
+    disconnectChain(master.effectsChain);
     master.isPlaying = false;
     master.sourceNode = null;
     master.gainNode = null;
@@ -243,6 +248,14 @@ mixBtn.addEventListener('click', async () => {
     master.elements.stopBtn.disabled = true;
     setStatus(master, 'Ready — click waveform to set cue');
     drawFrame(master.elements.canvas, master.buffer, master.beatTimes, master.cueTime, null, null);
+
+    // Rewire incoming effects chain now that the crossfade is done.
+    // During the fade, inGain → inAnalyser was direct. Insert the chain between them.
+    if (incoming.effectsChain && incoming.gainNode && incoming.analyserNode) {
+      incoming.gainNode.disconnect(incoming.analyserNode);
+      connectChain(incoming.effectsChain, incoming.gainNode, incoming.analyserNode);
+    }
+
     setMixStatus('');
     updateMixBtn();
     maybeStopLoop();
@@ -301,6 +314,14 @@ async function onBufferReady(track, audioBuffer) {
 
   drawFrame(track.elements.canvas, audioBuffer, beatTimes, track.cueTime, null, null);
 
+  // Create effects chain and panel once per track (preserved across track loads).
+  if (!track.effectsChain) {
+    const fxCtx = getAudioContext();
+    track.effectsChain = createEffectsChain(fxCtx);
+    const panel = buildEffectsPanel(track.id, track.effectsChain, fxCtx);
+    document.getElementById(`effects-rack-${track.id}`).replaceChildren(panel);
+  }
+
   attachCueClickHandler(track);
 
   track.elements.playBtn.disabled = false;
@@ -328,16 +349,20 @@ function attachCueClickHandler(track) {
   canvas.style.cursor = 'crosshair';
 }
 
-// Build the audio graph for a track: source → gain → analyser → destination.
+// Build the audio graph for a track: source → gain → [effects] → analyser → destination.
 function buildAudioGraph(ctx, track) {
   const gainNode = ctx.createGain();
   gainNode.gain.setValueAtTime(1.0, ctx.currentTime);
 
   const analyserNode = ctx.createAnalyser();
   analyserNode.fftSize = 2048;
-
-  gainNode.connect(analyserNode);
   analyserNode.connect(ctx.destination);
+
+  if (track.effectsChain) {
+    connectChain(track.effectsChain, gainNode, analyserNode);
+  } else {
+    gainNode.connect(analyserNode);
+  }
 
   track.gainNode = gainNode;
   track.analyserNode = analyserNode;
@@ -399,6 +424,11 @@ function stopTrack(track) {
 
   gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
   sourceNode.stop(ctx.currentTime + 0.1);
+
+  // Disconnect effects chain after the source has gone silent.
+  if (track.effectsChain) {
+    setTimeout(() => disconnectChain(track.effectsChain), 150);
+  }
 
   track.isPlaying = false;
   track.sourceNode = null;
