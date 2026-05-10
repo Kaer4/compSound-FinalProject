@@ -101,15 +101,16 @@ export function buildEffectsPanel(trackId, chain, audioCtx) {
           <span class="fx-value" id="reverb-mix-val-${trackId}">30%</span>
         </div>
         <div class="fx-row">
+          <label class="fx-label">DURATION</label>
+          <input type="range" class="fx-slider" id="reverb-duration-${trackId}"
+                 min="0.5" max="5.0" step="0.1" value="2.5">
+          <span class="fx-value" id="reverb-duration-val-${trackId}">2.5 s</span>
+        </div>
+        <div class="fx-row">
           <label class="fx-label">DECAY</label>
-          <div class="type-group">
-            <button class="type-btn active" data-duration="1.5" data-decay="1.5"
-                    id="decay-short-${trackId}">SHORT</button>
-            <button class="type-btn"        data-duration="2.5" data-decay="2.0"
-                    id="decay-med-${trackId}">MED</button>
-            <button class="type-btn"        data-duration="4.0" data-decay="1.2"
-                    id="decay-long-${trackId}">LONG</button>
-          </div>
+          <input type="range" class="fx-slider" id="reverb-decay-${trackId}"
+                 min="0.5" max="4.0" step="0.1" value="2.0">
+          <span class="fx-value" id="reverb-decay-val-${trackId}">2.0</span>
         </div>
       </div>
     </div>
@@ -273,7 +274,10 @@ function wirePanel(panel, id, chain, audioCtx) {
   const reverbToggle  = q(`#reverb-toggle-${id}`);
   const revMixSlider  = q(`#reverb-mix-${id}`);
   const revMixDisplay = q(`#reverb-mix-val-${id}`);
-  const decayBtns     = panel.querySelectorAll(`[id^="decay-"][id$="-${id}"]`);
+  const durationSlider  = q(`#reverb-duration-${id}`);
+  const durationDisplay = q(`#reverb-duration-val-${id}`);
+  const decaySlider     = q(`#reverb-decay-${id}`);
+  const decayDisplay    = q(`#reverb-decay-val-${id}`);
 
   function applyReverbMix(enabled) {
     const mix = enabled ? Number(revMixSlider.value) : 0;
@@ -293,15 +297,18 @@ function wirePanel(panel, id, chain, audioCtx) {
     if (chain.reverb.enabled) applyReverbMix(true);
   });
 
-  decayBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      decayBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const duration = Number(btn.dataset.duration);
-      const decay    = Number(btn.dataset.decay);
-      chain.reverb.convolver.buffer = buildIR(audioCtx, duration, decay);
-    });
-  });
+  function rebuildIR() {
+    const duration = Number(durationSlider.value);
+    const decay    = Number(decaySlider.value);
+    chain.reverb.convolver.buffer = buildIR(audioCtx, duration, decay);
+  }
+
+  // Update display live while dragging, rebuild IR only on release.
+  durationSlider.addEventListener('input',  () => { durationDisplay.textContent = `${Number(durationSlider.value).toFixed(1)} s`; });
+  durationSlider.addEventListener('change', rebuildIR);
+
+  decaySlider.addEventListener('input',  () => { decayDisplay.textContent = Number(decaySlider.value).toFixed(1); });
+  decaySlider.addEventListener('change', rebuildIR);
 }
 
 // ─── Formatting helpers ────────────────────────────────────────────────────────

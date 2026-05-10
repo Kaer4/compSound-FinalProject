@@ -2,7 +2,7 @@ import { detectBPM } from './analysis.js';
 import { drawFrame } from './visualizer.js';
 import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock } from './alignment.js';
 import { scheduleMix, getFadeDurationSeconds, HANDOFF_S } from './crossfade.js';
-import { createEffectsChain, connectChain, disconnectChain } from './effects.js';
+import { createEffectsChain, connectChain, disconnectChain, resetEffectsChain } from './effects.js';
 import { buildEffectsPanel } from './effects-ui.js';
 
 // Shared AudioContext — created lazily on first user gesture.
@@ -314,13 +314,15 @@ async function onBufferReady(track, audioBuffer) {
 
   drawFrame(track.elements.canvas, audioBuffer, beatTimes, track.cueTime, null, null);
 
-  // Create effects chain and panel once per track (preserved across track loads).
+  // Create effects chain on first load; reset audio params and rebuild panel DOM on every load.
+  const fxCtx = getAudioContext();
   if (!track.effectsChain) {
-    const fxCtx = getAudioContext();
     track.effectsChain = createEffectsChain(fxCtx);
-    const panel = buildEffectsPanel(track.id, track.effectsChain, fxCtx);
-    document.getElementById(`effects-rack-${track.id}`).replaceChildren(panel);
+  } else {
+    resetEffectsChain(track.effectsChain, fxCtx);
   }
+  const panel = buildEffectsPanel(track.id, track.effectsChain, fxCtx);
+  document.getElementById(`effects-rack-${track.id}`).replaceChildren(panel);
 
   attachCueClickHandler(track);
 

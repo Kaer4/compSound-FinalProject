@@ -87,6 +87,40 @@ export function createEffectsChain(audioCtx) {
 }
 
 /**
+ * Reset all effect parameters to their default (neutral) values.
+ * Call this when a new track is loaded so the rack starts fresh.
+ * @param {object}       chain
+ * @param {AudioContext} audioCtx - needed to rebuild the reverb IR
+ */
+export function resetEffectsChain(chain, audioCtx) {
+  const now = audioCtx.currentTime;
+
+  // EQ — all bands flat
+  chain.eq.low.gain.setValueAtTime(0, now);
+  chain.eq.mid.gain.setValueAtTime(0, now);
+  chain.eq.high.gain.setValueAtTime(0, now);
+
+  // Filter — LPF fully open, disabled
+  chain.filter.node.type = 'lowpass';
+  chain.filter.node.frequency.setValueAtTime(20000, now);
+  chain.filter.node.Q.setValueAtTime(1.0, now);
+  chain.filter.enabled = false;
+
+  // Delay — silent (wet=0, dry=1), disabled
+  chain.delay.node.delayTime.setValueAtTime(0.375, now);
+  chain.delay.feedback.gain.setValueAtTime(0.4, now);
+  chain.delay.dry.gain.setValueAtTime(1.0, now);
+  chain.delay.wet.gain.setValueAtTime(0.0, now);
+  chain.delay.enabled = false;
+
+  // Reverb — silent (wet=0, dry=1), disabled, fresh IR
+  chain.reverb.dry.gain.setValueAtTime(1.0, now);
+  chain.reverb.wet.gain.setValueAtTime(0.0, now);
+  chain.reverb.convolver.buffer = buildIR(audioCtx, 2.5, 2.0);
+  chain.reverb.enabled = false;
+}
+
+/**
  * Wire the effects chain between inputNode and outputNode.
  * Safe to call multiple times after disconnectChain().
  * @param {object} chain
