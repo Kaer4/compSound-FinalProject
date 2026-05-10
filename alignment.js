@@ -110,6 +110,8 @@ async function _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm) {
 
   const vocoder = new AudioWorkletNode(offlineCtx, 'phase-vocoder', {
     processorOptions: { stretchFactor },
+    channelCount: audioBuffer.numberOfChannels,
+    channelCountMode: 'explicit',
   });
 
   source.connect(vocoder);
