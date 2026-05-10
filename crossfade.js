@@ -3,7 +3,7 @@ import { computePlaybackRate } from './alignment.js';
 const FADE_BEATS   = 8;
 const CURVE_LENGTH = 128;
 const MIN_LOOKAHEAD = 0.1; // seconds
-const FADE_BIAS_POWER = 0.82; // <1 favors incoming earlier during the fade
+const FADE_BIAS_POWER = 0.4; // stronger bias — incoming is dominant by ~17% of the fade
 export const HANDOFF_S = 0.03; // micro-crossfade between stretched slice and continuation
 
 /** Crossfade length in seconds from master BPM (master plays at playbackRate 1). */

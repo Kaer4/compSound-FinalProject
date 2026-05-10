@@ -195,12 +195,23 @@ mixBtn.addEventListener('click', async () => {
   const { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration: scheduledFade, inSource, inGain, masterHPF } = result;
   const fadeEndCtxTime = nextDownbeatCtxTime + scheduledFade;
 
-  // Wire AnalyserNode for the incoming track.
+  // Wire AnalyserNode for the incoming track, routing through its effects chain if present.
   const inAnalyser = ctx.createAnalyser();
   inAnalyser.fftSize = 2048;
-  inGain.disconnect();
-  inGain.connect(inAnalyser);
   inAnalyser.connect(ctx.destination);
+  inGain.disconnect();
+  if (incoming.effectsChain) {
+    connectChain(incoming.effectsChain, inGain, inAnalyser);
+  } else {
+    inGain.connect(inAnalyser);
+  }
+
+  // Re-insert master effects chain after scheduleMix rerouted gainNode → masterHPF → analyserNode.
+  // New path: gainNode → masterHPF (passthrough) → effectsChain → analyserNode.
+  if (master.effectsChain) {
+    masterHPF.disconnect();
+    connectChain(master.effectsChain, masterHPF, master.analyserNode);
+  }
 
   const tailEpsilon = 1e-4;
   if (continuationOffset < incoming.buffer.duration - tailEpsilon) {
@@ -248,13 +259,6 @@ mixBtn.addEventListener('click', async () => {
     master.elements.stopBtn.disabled = true;
     setStatus(master, 'Ready — click waveform to set cue');
     drawFrame(master.elements.canvas, master.buffer, master.beatTimes, master.cueTime, null, null);
-
-    // Rewire incoming effects chain now that the crossfade is done.
-    // During the fade, inGain → inAnalyser was direct. Insert the chain between them.
-    if (incoming.effectsChain && incoming.gainNode && incoming.analyserNode) {
-      incoming.gainNode.disconnect(incoming.analyserNode);
-      connectChain(incoming.effectsChain, incoming.gainNode, incoming.analyserNode);
-    }
 
     setMixStatus('');
     updateMixBtn();
