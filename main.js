@@ -1,6 +1,6 @@
 import { detectBPM } from './analysis.js';
 import { drawFrame } from './visualizer.js';
-import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock, measureTailSilence, normalizeBuffer } from './alignment.js';
+import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock, measureTailSilence } from './alignment.js';
 import { scheduleMix, getFadeDurationSeconds, HANDOFF_S } from './crossfade.js';
 import { createEffectsChain, connectChain, disconnectChain, resetEffectsChain } from './effects.js';
 import { buildEffectsPanel } from './effects-ui.js';
@@ -160,8 +160,6 @@ mixBtn.addEventListener('click', async () => {
   let stretchedBuffer = null;
   let sourceAdvance;
 
-  let stretchedTailS = 0;
-
   if (needsTimeStretch(master.bpm, incoming.bpm)) {
     sourceAdvance = fadeDuration * master.bpm / incoming.bpm;
 
@@ -171,11 +169,6 @@ mixBtn.addEventListener('click', async () => {
     try {
       stretchedBuffer = await timeStretchBuffer(slice, master.bpm, incoming.bpm, ctx);
       stretchedBuffer = trimBufferToWallClock(ctx, stretchedBuffer, fadeDuration);
-      // Measure tail silence BEFORE normalizing — normalizeBuffer scales all samples
-      // proportionally, which can push near-threshold tail samples below the 1e-4 cutoff
-      // and artificially inflate the reported tail duration.
-      stretchedTailS = measureTailSilence(stretchedBuffer);
-      stretchedBuffer = normalizeBuffer(stretchedBuffer);
     } catch (err) {
       setMixStatus(`Stretch error: ${err.message}`);
       mixBtn.disabled = false;
@@ -191,13 +184,8 @@ mixBtn.addEventListener('click', async () => {
   // exact amount varies by BPM ratio and which path ran (worklet vs pure-JS). Measure it
   // directly so the handoff always completes before the silence begins, regardless of path.
   // A 10 ms safety margin ensures the ramp is fully settled before the PV goes quiet.
-  // Cap at fadeDuration − HANDOFF_S so rampEndTime always stays within the fade window.
-  // Math.max(0, …) covers very short fades where fadeDuration ≤ HANDOFF_S.
   const TAIL_MARGIN_S = 0.01;
-  const maxTailGapS = Math.max(0, fadeDuration - HANDOFF_S);
-  const tailGapS = stretchedBuffer
-    ? Math.min(stretchedTailS + TAIL_MARGIN_S, maxTailGapS)
-    : 0;
+  const tailGapS = stretchedBuffer ? measureTailSilence(stretchedBuffer) + TAIL_MARGIN_S : 0;
   // stretchRate: how fast the PV advances through the original buffer relative to wall clock.
   // Used to position contSource so it picks up exactly where the PV left off.
   const stretchRate = stretchedBuffer ? master.bpm / incoming.bpm : 1;
