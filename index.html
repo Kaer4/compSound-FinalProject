@@ -38,7 +38,10 @@
         <button id="stop-a" disabled>Stop</button>
         <span class="bpm-label">BPM <span id="bpm-a">--</span></span>
         <span class="status" id="status-a"></span>
+        <button class="fx-rack-toggle" data-target="effects-rack-a">FX ▾</button>
       </div>
+
+      <div class="effects-rack collapsed" id="effects-rack-a"></div>
     </div>
 
     <!-- Mix controls -->
@@ -78,11 +81,25 @@
         <button id="stop-b" disabled>Stop</button>
         <span class="bpm-label">BPM <span id="bpm-b">--</span></span>
         <span class="status" id="status-b"></span>
+        <button class="fx-rack-toggle" data-target="effects-rack-b">FX ▾</button>
       </div>
+
+      <div class="effects-rack collapsed" id="effects-rack-b"></div>
     </div>
 
   </div>
 
+  <script>
+    // FX rack collapse/expand — plain script, no module needed.
+    document.addEventListener('click', e => {
+      const btn = e.target.closest('.fx-rack-toggle');
+      if (!btn) return;
+      const rack = document.getElementById(btn.dataset.target);
+      if (!rack) return;
+      const collapsed = rack.classList.toggle('collapsed');
+      btn.textContent = collapsed ? 'FX ▾' : 'FX ▴';
+    });
+  </script>
   <script type="module" src="main.js"></script>
 </body>
 </html>
