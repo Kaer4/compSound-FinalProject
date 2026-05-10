@@ -25,6 +25,9 @@ export function buildEffectsPanel(trackId, chain, audioCtx) {
         ${eqBandHTML('low',  trackId, 'LOW')}
         ${eqBandHTML('mid',  trackId, 'MID')}
         ${eqBandHTML('high', trackId, 'HIGH')}
+        <div class="eq-footer">
+          <button class="reset-btn" id="eq-reset-${trackId}">RESET ALL</button>
+        </div>
       </div>
     </div>
 
@@ -48,7 +51,7 @@ export function buildEffectsPanel(trackId, chain, audioCtx) {
           <span class="fx-value" id="filter-cutoff-val-${trackId}">20 kHz</span>
         </div>
         <div class="fx-row">
-          <label class="fx-label">RESO</label>
+          <label class="fx-label">RESONANCE</label>
           <input type="range" class="fx-slider" id="filter-q-${trackId}"
                  min="0.1" max="20" step="0.1" value="1">
           <span class="fx-value" id="filter-q-val-${trackId}">1.0</span>
@@ -66,13 +69,13 @@ export function buildEffectsPanel(trackId, chain, audioCtx) {
         <div class="fx-row">
           <label class="fx-label">TIME</label>
           <input type="range" class="fx-slider" id="delay-time-${trackId}"
-                 min="0.05" max="1" step="0.01" value="0.375">
+                 min="0" max="1" step="0.01" value="0.375">
           <span class="fx-value" id="delay-time-val-${trackId}">375 ms</span>
         </div>
         <div class="fx-row">
-          <label class="fx-label">FDBK</label>
+          <label class="fx-label">FEEDBACK</label>
           <input type="range" class="fx-slider" id="delay-feedback-${trackId}"
-                 min="0" max="0.85" step="0.01" value="0.4">
+                 min="0" max="0.8" step="0.01" value="0.4">
           <span class="fx-value" id="delay-feedback-val-${trackId}">40%</span>
         </div>
         <div class="fx-row">
@@ -123,7 +126,7 @@ function eqBandHTML(band, trackId, label) {
     <div class="eq-band">
       <label class="fx-label">${label}</label>
       <input type="range" class="fx-slider eq-slider" id="eq-${band}-${trackId}"
-             min="-40" max="6" step="0.5" value="0">
+             min="-40" max="12" step="0.5" value="0">
       <span class="fx-value" id="eq-${band}-val-${trackId}">0 dB</span>
       <button class="kill-btn" id="kill-${band}-${trackId}">KILL</button>
     </div>
@@ -137,7 +140,13 @@ function wirePanel(panel, id, chain, audioCtx) {
   const q   = sel => panel.querySelector(sel);
 
   // ── EQ ──────────────────────────────────────────────────────────────────────
-  for (const [band, node] of [['low', chain.eq.low], ['mid', chain.eq.mid], ['high', chain.eq.high]]) {
+  const eqBands = [
+    { band: 'low',  node: chain.eq.low  },
+    { band: 'mid',  node: chain.eq.mid  },
+    { band: 'high', node: chain.eq.high },
+  ];
+
+  for (const { band, node } of eqBands) {
     const slider  = q(`#eq-${band}-${id}`);
     const display = q(`#eq-${band}-val-${id}`);
     const killBtn = q(`#kill-${band}-${id}`);
@@ -146,18 +155,29 @@ function wirePanel(panel, id, chain, audioCtx) {
       const dB = Number(slider.value);
       node.gain.setValueAtTime(dB, now());
       display.textContent = formatDB(dB);
+      // Deactivate kill if slider moved away from -40
       killBtn.classList.toggle('active', dB <= -40);
     });
 
     killBtn.addEventListener('click', () => {
-      const killed = killBtn.classList.contains('active');
-      const dB = killed ? 0 : -40;
+      const killing = !killBtn.classList.contains('active');
+      const dB = killing ? -40 : 0;
       node.gain.setValueAtTime(dB, now());
       slider.value = dB;
       display.textContent = formatDB(dB);
-      killBtn.classList.toggle('active', !killed);
+      killBtn.classList.toggle('active', killing);
     });
   }
+
+  // Single RESET button — zeros all three bands.
+  q(`#eq-reset-${id}`).addEventListener('click', () => {
+    for (const { band, node } of eqBands) {
+      node.gain.setValueAtTime(0, now());
+      q(`#eq-${band}-${id}`).value = 0;
+      q(`#eq-${band}-val-${id}`).textContent = formatDB(0);
+      q(`#kill-${band}-${id}`).classList.remove('active');
+    }
+  });
 
   // ── Filter ───────────────────────────────────────────────────────────────────
   const filterToggle  = q(`#filter-toggle-${id}`);
