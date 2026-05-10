@@ -106,15 +106,17 @@ function finishIncomingPlayback(track) {
 }
 
 /** Resume incoming at `continuationOffset` after the crossfade, playbackRate 1, same gain chain.
- *  Uses a private contSourceFade node to micro-crossfade with the ending inSourceFade. */
-function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset, handoffS = HANDOFF_S) {
-  const handoffCtxTime    = fadeEndCtxTime - handoffS;
-  const handoffBufferOffset = Math.max(0, continuationOffset - handoffS);
+ *  Uses a private contSourceFade node to micro-crossfade with the ending inSourceFade.
+ *  Both ramps end at fadeEndCtxTime − tailGapS so the handoff completes before the PV silence. */
+function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset, tailGapS = 0) {
+  const rampEndCtxTime      = fadeEndCtxTime - tailGapS;
+  const handoffCtxTime      = rampEndCtxTime - HANDOFF_S;
+  const handoffBufferOffset = Math.max(0, continuationOffset - HANDOFF_S);
 
-  // Private gain node: ramps 0→1 over HANDOFF_S, overlapping with inSourceFade's 1→0 ramp.
+  // Private gain node: ramps 0→1 over HANDOFF_S, ending at rampEndCtxTime (before PV silence).
   const contSourceFade = ctx.createGain();
   contSourceFade.gain.setValueAtTime(0.0, handoffCtxTime);
-  contSourceFade.gain.linearRampToValueAtTime(1.0, fadeEndCtxTime);
+  contSourceFade.gain.linearRampToValueAtTime(1.0, rampEndCtxTime);
   contSourceFade.connect(inGain);
 
   const contSource = ctx.createBufferSource();
@@ -128,12 +130,12 @@ function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, con
     }
   };
 
-  const msUntilHandoff = (fadeEndCtxTime - ctx.currentTime) * 1000;
+  const msUntilRampEnd = (rampEndCtxTime - ctx.currentTime) * 1000;
   setTimeout(() => {
     incoming.sourceNode = contSource;
     incoming.cueTime = continuationOffset;
-    incoming.startContextTime = fadeEndCtxTime;
-  }, msUntilHandoff + 50);
+    incoming.startContextTime = rampEndCtxTime;
+  }, msUntilRampEnd + 50);
 }
 
 // Mix button.
@@ -172,10 +174,9 @@ mixBtn.addEventListener('click', async () => {
 
   // Tail-gap guard: the phase vocoder discards the last (N − Ha) input samples because
   // they don't fill a complete analysis frame. Their output is zeros, leaving ~61ms of
-  // silence at the end of stretchedBuffer. Extend the contSource overlap window to cover
-  // that gap so the continuation audio is already ramping in before the silence.
+  // silence at the end of stretchedBuffer. Both inSourceFade and contSourceFade ramps
+  // complete at fadeEndTime − tailGapS so the handoff finishes before that silence.
   const tailGapS = stretchedBuffer ? (PV_N - PV_Ha) / ctx.sampleRate : 0;
-  const effectiveHandoffS = HANDOFF_S + tailGapS; // ~100ms stretch path, 30ms rate path
 
   // Re-validate master after the async stretch — it may have ended during processing.
   if (!master.isPlaying || !master.gainNode || !master.sourceNode) {
@@ -186,7 +187,7 @@ mixBtn.addEventListener('click', async () => {
 
   let result;
   try {
-    result = scheduleMix(master, incoming, ctx, stretchedBuffer, fadeBeats);
+    result = scheduleMix(master, incoming, ctx, stretchedBuffer, fadeBeats, tailGapS);
   } catch (err) {
     setMixStatus(`Schedule error: ${err.message}`);
     mixBtn.disabled = false;
@@ -222,7 +223,7 @@ mixBtn.addEventListener('click', async () => {
 
   const tailEpsilon = 1e-4;
   if (continuationOffset < incoming.buffer.duration - tailEpsilon) {
-    scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset, effectiveHandoffS);
+    scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset, tailGapS);
   } else {
     inSource.onended = () => {
       if (incoming.sourceNode === inSource) {

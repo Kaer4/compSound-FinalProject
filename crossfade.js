@@ -28,7 +28,7 @@ export function getFadeDurationSeconds(masterBpm, fadeBeats = FADE_BEATS) {
  * Incoming fade source is always stopped at `nextDownbeatCtxTime + fadeDuration` so overlap
  * matches the equal-power window (handles stretched buffers longer/shorter than the fade).
  */
-export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffer = null, fadeBeats = FADE_BEATS) {
+export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffer = null, fadeBeats = FADE_BEATS, tailGapS = 0) {
   const playhead = masterTrack.cueTime + (audioCtx.currentTime - masterTrack.startContextTime);
 
   // Find the next downbeat in the master's beat grid after the current playhead.
@@ -116,12 +116,17 @@ export function scheduleMix(masterTrack, incomingTrack, audioCtx, stretchedBuffe
     inSource.stop(fadeEndTime);
   }
 
-  // Ramp inSourceFade to 0 over the last HANDOFF_S of the fade so the handoff
-  // to the continuation source is a micro-crossfade rather than an abrupt cut.
-  inSourceFade.gain.setValueAtTime(1.0, fadeEndTime - HANDOFF_S);
-  inSourceFade.gain.linearRampToValueAtTime(0.0, fadeEndTime);
+  // Ramp inSourceFade to 0 just before the PV tail-gap silence begins (fadeEndTime − tailGapS).
+  // Coordinated with contSourceFade in scheduleIncomingContinuation so both ramps cover the
+  // same HANDOFF_S window and sum to 1 throughout — no dip when inSource goes silent.
+  const rampEndTime = fadeEndTime - tailGapS;
+  inSourceFade.gain.setValueAtTime(1.0, rampEndTime - HANDOFF_S);
+  inSourceFade.gain.linearRampToValueAtTime(0.0, rampEndTime);
 
   // Schedule gain curves and stop master.
+  // Pre-ramp master from 1.0 → fadeOut[0] over 10 ms so the curve entry is smooth (no pop).
+  masterTrack.gainNode.gain.setValueAtTime(1.0, nextDownbeatCtxTime - 0.01);
+  masterTrack.gainNode.gain.linearRampToValueAtTime(fadeOut[0], nextDownbeatCtxTime);
   masterTrack.gainNode.gain.setValueCurveAtTime(fadeOut, nextDownbeatCtxTime, fadeDuration);
   inGain.gain.setValueCurveAtTime(fadeIn, nextDownbeatCtxTime, fadeDuration);
   masterTrack.sourceNode.stop(fadeEndTime);
