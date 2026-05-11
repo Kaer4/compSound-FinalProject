@@ -159,6 +159,7 @@ mixBtn.addEventListener('click', async () => {
   const fadeDuration = getFadeDurationSeconds(master.bpm, fadeBeats);
   let stretchedBuffer = null;
   let sourceAdvance;
+  let stretchedTailS = 0;
 
   if (needsTimeStretch(master.bpm, incoming.bpm)) {
     sourceAdvance = fadeDuration * master.bpm / incoming.bpm;
@@ -169,6 +170,7 @@ mixBtn.addEventListener('click', async () => {
     try {
       stretchedBuffer = await timeStretchBuffer(slice, master.bpm, incoming.bpm, ctx);
       stretchedBuffer = trimBufferToWallClock(ctx, stretchedBuffer, fadeDuration);
+      stretchedTailS = measureTailSilence(stretchedBuffer);
     } catch (err) {
       setMixStatus(`Stretch error: ${err.message}`);
       mixBtn.disabled = false;
@@ -181,11 +183,14 @@ mixBtn.addEventListener('click', async () => {
   const continuationOffset = incoming.cueTime + sourceAdvance;
 
   // Tail-gap guard: the PV leaves trailing silence at the end of stretchedBuffer — the
-  // exact amount varies by BPM ratio and which path ran (worklet vs pure-JS). Measure it
-  // directly so the handoff always completes before the silence begins, regardless of path.
-  // A 10 ms safety margin ensures the ramp is fully settled before the PV goes quiet.
+  // exact amount varies by BPM ratio and which path ran (worklet vs pure-JS). Cap
+  // tailGapS so rampEndTime stays inside the fade window — otherwise inSourceFade hits 0
+  // at the downbeat and incoming is inaudible (see crossfade.js rampEndTime).
   const TAIL_MARGIN_S = 0.01;
-  const tailGapS = stretchedBuffer ? measureTailSilence(stretchedBuffer) + TAIL_MARGIN_S : 0;
+  const maxTailGapS = Math.max(0, fadeDuration - HANDOFF_S);
+  const tailGapS = stretchedBuffer
+    ? Math.min(stretchedTailS + TAIL_MARGIN_S, maxTailGapS)
+    : 0;
   // stretchRate: how fast the PV advances through the original buffer relative to wall clock.
   // Used to position contSource so it picks up exactly where the PV left off.
   const stretchRate = stretchedBuffer ? master.bpm / incoming.bpm : 1;
