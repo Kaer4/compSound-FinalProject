@@ -20,11 +20,17 @@
         <div class="track-load">
           <select id="preset-a">
             <option value="">SELECT PRESET TRACK</option>
+            <!-- All 10 files in samples/ (alphabetical by filename) -->
             <option value="samples/Flashing Lights.mp3">Flashing Lights</option>
+            <option value="samples/Frank Ocean - Nights 4.mp3">Frank Ocean – Nights</option>
+            <option value="samples/Hot 'n Cold- Basement Jaxx.mp3">Basement Jaxx – Hot ’n Cold</option>
+            <option value="samples/Icona Pop - I Love It (Feat. Charli XCX)  [Audio] 4.mp3">Icona Pop – I Love It</option>
+            <option value="samples/Lauryn Hill - Ex-Factor 4.mp3">Lauryn Hill – Ex-Factor</option>
+            <option value="samples/Lose My Mind- Darby.mp3">Darby – Lose My Mind</option>
             <option value="samples/Mitski - Washing Machine Heart.mp3">Mitski – Washing Machine Heart</option>
+            <option value="samples/Nice For What 4.mp3">Drake – Nice For What</option>
             <option value="samples/Panic! At The Disco - House of Memories (Official Audio) 4.mp3">Panic! At The Disco – House of Memories</option>
             <option value="samples/Tyler, The Creator - SEE YOU AGAIN (ft. Kali Uchis) 4.mp3">Tyler, The Creator – See You Again</option>
-            <option value="samples/Frank Ocean - Nights 4.mp3">Frank Ocean – Nights</option>
           </select>
           <button id="load-preset-a">Load</button>
           <input type="file" id="upload-a" accept=".mp3,audio/*" />
@@ -36,7 +42,10 @@
       <div class="track-controls">
         <button id="play-a" disabled>Play</button>
         <button id="stop-a" disabled>Stop</button>
-        <span class="bpm-label">BPM <span id="bpm-a">--</span></span>
+        <label class="bpm-label" title="Auto-detected; edit if wrong — used for beat grid and MIX timing">
+          BPM
+          <input id="bpm-input-a" class="bpm-input" type="number" inputmode="decimal" min="40" max="240" step="0.1" disabled placeholder="—" />
+        </label>
         <span class="status" id="status-a"></span>
         <button class="fx-rack-toggle" data-target="effects-rack-a">FX ▾</button>
       </div>
@@ -63,11 +72,17 @@
         <div class="track-load">
           <select id="preset-b">
             <option value="">SELECT PRESET TRACK</option>
+            <!-- All 10 files in samples/ (alphabetical by filename) -->
             <option value="samples/Flashing Lights.mp3">Flashing Lights</option>
+            <option value="samples/Frank Ocean - Nights 4.mp3">Frank Ocean – Nights</option>
+            <option value="samples/Hot 'n Cold- Basement Jaxx.mp3">Basement Jaxx – Hot ’n Cold</option>
+            <option value="samples/Icona Pop - I Love It (Feat. Charli XCX)  [Audio] 4.mp3">Icona Pop – I Love It</option>
+            <option value="samples/Lauryn Hill - Ex-Factor 4.mp3">Lauryn Hill – Ex-Factor</option>
+            <option value="samples/Lose My Mind- Darby.mp3">Darby – Lose My Mind</option>
             <option value="samples/Mitski - Washing Machine Heart.mp3">Mitski – Washing Machine Heart</option>
+            <option value="samples/Nice For What 4.mp3">Drake – Nice For What</option>
             <option value="samples/Panic! At The Disco - House of Memories (Official Audio) 4.mp3">Panic! At The Disco – House of Memories</option>
             <option value="samples/Tyler, The Creator - SEE YOU AGAIN (ft. Kali Uchis) 4.mp3">Tyler, The Creator – See You Again</option>
-            <option value="samples/Frank Ocean - Nights 4.mp3">Frank Ocean – Nights</option>
           </select>
           <button id="load-preset-b">Load</button>
           <input type="file" id="upload-b" accept=".mp3,audio/*" />
@@ -79,7 +94,10 @@
       <div class="track-controls">
         <button id="play-b" disabled>Play</button>
         <button id="stop-b" disabled>Stop</button>
-        <span class="bpm-label">BPM <span id="bpm-b">--</span></span>
+        <label class="bpm-label" title="Auto-detected; edit if wrong — used for beat grid and MIX timing">
+          BPM
+          <input id="bpm-input-b" class="bpm-input" type="number" inputmode="decimal" min="40" max="240" step="0.1" disabled placeholder="—" />
+        </label>
         <span class="status" id="status-b"></span>
         <button class="fx-rack-toggle" data-target="effects-rack-b">FX ▾</button>
       </div>

@@ -1,6 +1,5 @@
-// ---------------------------------------------------------------------------
+// figuring out how to match the tracks BPMs
 // BPM alignment helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Computes the playback rate to apply to the incoming track so its tempo
@@ -12,11 +11,30 @@ export function computePlaybackRate(masterBpm, incomingBpm) {
 }
 
 /**
+ * Same tempo ratio as the PV output (true master/incoming), clamped only for
+ * AudioBufferSource playbackRate stability. Use for the dry align branch so
+ * buffer time stays locked to the stretched slice (computePlaybackRate's [0.5,2]
+ * clamp would drift when PV uses the uncapped ratio).
+ */
+export function playbackRateForPvDryAlign(masterBpm, incomingBpm) {
+  const r = masterBpm / incomingBpm;
+  return Math.min(Math.max(r, 0.0625), 16);
+}
+
+/** Snap a decode offset to the nearest sample for seamless BufferSource chain handoffs. */
+export function snapBufferOffset(audioBuffer, offsetSec) {
+  const sr = audioBuffer.sampleRate;
+  const maxSample = Math.max(0, Math.floor(audioBuffer.duration * sr) - 1);
+  const s = Math.round(Math.max(0, offsetSec * sr));
+  return Math.min(maxSample, s) / sr;
+}
+
+/**
  * Returns true when the BPM difference warrants phase vocoder time-stretching
- * (> ~3.5% deviation from master tempo).
+ * so if the BPM diff is greater than 3.5% then we need to time stretch
  */
 export function needsTimeStretch(masterBpm, incomingBpm) {
-  // Slightly wider than 2% so more mixes use playbackRate (less phase-vocoder time on ear).
+  // Slightly wider than 2% so more mixes use playbackRate (less phase-vocoder time on ear)
   return Math.abs(1 - masterBpm / incomingBpm) > 0.035;
 }
 
@@ -26,8 +44,8 @@ export function needsTimeStretch(masterBpm, incomingBpm) {
  * does not support AudioWorklet in OfflineAudioContext.
  *
  * stretchFactor = incomingBpm / masterBpm
- *   > 1 → incoming is faster → output is longer (slowed down to match master)
- *   < 1 → incoming is slower → output is shorter (sped up to match master)
+ *   > 1 -> incoming is faster ->output is longer (slowed down to match master)
+ *   < 1 -> incoming is slower -> output is shorter (sped up to match master)
  *
  * @param {AudioBuffer} audioBuffer
  * @param {number} masterBpm
@@ -80,19 +98,26 @@ export function trimBufferToWallClock(audioCtx, audioBuffer, durationSeconds) {
   return out;
 }
 
+export function clipBuffer(audioBuffer) {
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const data = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] > 1.0) data[i] = 1.0;
+      else if (data[i] < -1.0) data[i] = -1.0;
+    }
+  }
+  return audioBuffer;
+}
+
 export async function timeStretchBuffer(audioBuffer, masterBpm, incomingBpm, audioCtx) {
   try {
     return await _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm);
   } catch {
-    // OfflineAudioContext does not support AudioWorklet in this environment —
-    // fall back to the equivalent pure-JS implementation.
     return _timeStretchPureJS(audioBuffer, masterBpm, incomingBpm, audioCtx);
   }
 }
 
-// ---------------------------------------------------------------------------
 // Worklet path (Chrome / Firefox with OfflineAudioContext AudioWorklet support)
-// ---------------------------------------------------------------------------
 async function _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm) {
   const stretchFactor = incomingBpm / masterBpm;
   const outputLength  = Math.ceil(audioBuffer.length * stretchFactor);
@@ -103,7 +128,6 @@ async function _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm) {
     audioBuffer.sampleRate,
   );
 
-  // Throws if audioWorklet is undefined — caught by caller.
   await offlineCtx.audioWorklet.addModule('worklets/phase-vocoder.js');
 
   const source = offlineCtx.createBufferSource();
@@ -122,11 +146,10 @@ async function _timeStretchViaWorklet(audioBuffer, masterBpm, incomingBpm) {
   return offlineCtx.startRendering();
 }
 
-// ---------------------------------------------------------------------------
-// Pure-JS fallback — same algorithm as the AudioWorklet, runs on main thread
-// ---------------------------------------------------------------------------
-export const PV_N  = 4096; // FFT size (keep in sync with worklets/phase-vocoder.js N)
-export const PV_Ha = 1024; // analysis hop N/4 (75% overlap — matches worklet Ha)
+
+// Pure-JS fallback 
+const PV_N  = 4096; // FFT size (keep in sync with worklets/phase-vocoder.js N)
+const PV_Ha = 1024; // analysis hop N/4 (75% overlap and matches worklet Ha)
 
 /**
  * Returns the duration (seconds) of trailing silence at the end of an AudioBuffer.
@@ -135,10 +158,12 @@ export const PV_Ha = 1024; // analysis hop N/4 (75% overlap — matches worklet 
  * silence at the end) and the pure-JS fallback (shorter tail, depends on frame count).
  *
  * @param {AudioBuffer} audioBuffer
- * @param {number} [threshold=1e-4] - amplitude below which a sample is considered silent
+ * @param {number} [threshold=1e-4] - fixed floor; backward scan uses max(threshold, peak * RELATIVE_TAIL_K)
  * @returns {number} tail silence in seconds (capped; see MAX_TAIL_SILENCE_S)
  */
-const MAX_TAIL_SILENCE_S = 0.3;
+const MAX_TAIL_SILENCE_S = 0.42; // allow longer measured PV tail before cap (better tailGap / handoff)
+/** PV/decoded tails: scale threshold with peak so quiet tails are not cut too short. */
+const RELATIVE_TAIL_K = 0.005;
 
 export function measureTailSilence(audioBuffer, threshold = 1e-4) {
   let peak = 0;
@@ -151,11 +176,13 @@ export function measureTailSilence(audioBuffer, threshold = 1e-4) {
   }
   if (peak < threshold) return 0;
 
+  const effectiveThreshold = Math.max(threshold, peak * RELATIVE_TAIL_K);
+
   let lastNonSilent = 0;
   for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
     const data = audioBuffer.getChannelData(ch);
     let i = data.length - 1;
-    while (i > lastNonSilent && Math.abs(data[i]) < threshold) i--;
+    while (i > lastNonSilent && Math.abs(data[i]) < effectiveThreshold) i--;
     if (i > lastNonSilent) lastNonSilent = i;
   }
   const raw = (audioBuffer.length - 1 - lastNonSilent) / audioBuffer.sampleRate;
@@ -250,9 +277,8 @@ async function _timeStretchPureJS(audioBuffer, masterBpm, incomingBpm, audioCtx)
   return outBuffer;
 }
 
-// ---------------------------------------------------------------------------
+
 // DSP primitives
-// ---------------------------------------------------------------------------
 
 function _makeHann(n) {
   const w = new Float32Array(n);

@@ -1,11 +1,26 @@
 import { detectBPM } from './analysis.js';
 import { drawFrame } from './visualizer.js';
-import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock, measureTailSilence } from './alignment.js';
-import { scheduleMix, getFadeDurationSeconds, HANDOFF_S } from './crossfade.js';
+import {
+  computePlaybackRate,
+  needsTimeStretch,
+  timeStretchBuffer,
+  extractSegment,
+  trimBufferToWallClock,
+  measureTailSilence,
+  clipBuffer,
+  playbackRateForPvDryAlign,
+  snapBufferOffset,
+} from './alignment.js';
+import {
+  scheduleMix,
+  getFadeDurationSeconds,
+  HANDOFF_S,
+  getHandoffFadeInCurve,
+} from './crossfade.js';
 import { createEffectsChain, connectChain, disconnectChain, resetEffectsChain } from './effects.js';
 import { buildEffectsPanel } from './effects-ui.js';
 
-// Shared AudioContext — created lazily on first user gesture.
+// Shared AudioContext
 let audioCtx = null;
 
 function getAudioContext() {
@@ -15,14 +30,16 @@ function getAudioContext() {
   return audioCtx;
 }
 
-// RAF handle — single loop drives both canvases.
+// RAF handle
 let rafId = null;
 
-// Mix button reference.
+// Mix button reference
 const mixBtn = document.getElementById('mix-btn');
 const fadeBeatsInput = document.getElementById('fade-beats');
 const fadeBeatsDisplay = document.getElementById('fade-beats-display');
 const DEFAULT_FADE_BEATS = 8;
+const BPM_INPUT_MIN = 40;
+const BPM_INPUT_MAX = 240;
 
 fadeBeatsInput.addEventListener('input', () => {
   fadeBeatsDisplay.textContent = fadeBeatsInput.value;
@@ -37,7 +54,56 @@ function getFadeBeats() {
   return Math.max(min, Math.min(max, Math.round(raw)));
 }
 
-// Track state objects.
+//Beat grid from manual BPM; keeps phase anchored at first beat (same as detector grid phase)
+function rebuildBeatGridKeepingAnchor(track, bpm) {
+  const interval = 60 / bpm;
+  const duration = track.buffer.duration;
+  let anchor = track.beatTimes.length > 0 ? track.beatTimes[0] : 0;
+  if (anchor >= duration) anchor = 0;
+
+  const beatTimes = [];
+  for (let t = anchor; t < duration; t += interval) {
+    beatTimes.push(t);
+  }
+  track.beatTimes = beatTimes;
+  track.bpm = Math.round(bpm * 10) / 10;
+}
+
+function redrawTrackFrame(track) {
+  if (!track.buffer) return;
+  let playheadTime = null;
+  if (track.isPlaying && track.startContextTime != null) {
+    const ctx = getAudioContext();
+    const elapsed = Math.max(0, ctx.currentTime - track.startContextTime);
+    playheadTime = track.startBufferTime + elapsed;
+  }
+  drawFrame(
+    track.elements.canvas,
+    track.buffer,
+    track.beatTimes,
+    track.cueTime,
+    playheadTime,
+    track.crossfadeRegion,
+  );
+}
+
+function applyManualBpm(track) {
+  if (!track.buffer) return;
+  const input = track.elements.bpmInput;
+  const raw = parseFloat(String(input.value).trim(), 10);
+  if (!Number.isFinite(raw)) {
+    input.value = track.bpm != null ? track.bpm.toFixed(1) : '';
+    return;
+  }
+  const clamped = Math.max(BPM_INPUT_MIN, Math.min(BPM_INPUT_MAX, raw));
+  const rounded = Math.round(clamped * 10) / 10;
+  rebuildBeatGridKeepingAnchor(track, rounded);
+  input.value = rounded.toFixed(1);
+  redrawTrackFrame(track);
+  updateMixBtn();
+}
+
+// Track state objects
 const tracks = {
   a: makeTrack('a'),
   b: makeTrack('b'),
@@ -54,6 +120,7 @@ function makeTrack(id) {
     bpm: null,
     beatTimes: [],
     cueTime: 0,
+    startBufferTime: 0,
     startContextTime: null,
     crossfadeRegion: null,
     cueClickHandler: null,
@@ -62,7 +129,7 @@ function makeTrack(id) {
       presetSelect: document.getElementById(`preset-${id}`),
       loadPresetBtn: document.getElementById(`load-preset-${id}`),
       uploadInput: document.getElementById(`upload-${id}`),
-      bpmDisplay: document.getElementById(`bpm-${id}`),
+      bpmInput: document.getElementById(`bpm-input-${id}`),
       statusDisplay: document.getElementById(`status-${id}`),
       playBtn: document.getElementById(`play-${id}`),
       stopBtn: document.getElementById(`stop-${id}`),
@@ -71,7 +138,7 @@ function makeTrack(id) {
   };
 }
 
-// Wire static events for both tracks.
+// Wire static events for both tracks
 for (const track of Object.values(tracks)) {
   const el = track.elements;
 
@@ -89,10 +156,20 @@ for (const track of Object.values(tracks)) {
 
   el.playBtn.addEventListener('click', () => playTrack(track));
   el.stopBtn.addEventListener('click', () => stopTrack(track));
+
+  el.bpmInput.addEventListener('change', () => applyManualBpm(track));
+  el.bpmInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyManualBpm(track);
+      el.bpmInput.blur();
+    }
+  });
 }
 
 function finishIncomingPlayback(track) {
   track.isPlaying = false;
+  track.mixStopTargets = null;
   track.sourceNode = null;
   track.gainNode = null;
   track.analyserNode = null;
@@ -100,14 +177,14 @@ function finishIncomingPlayback(track) {
   track.elements.playBtn.disabled = false;
   track.elements.stopBtn.disabled = true;
   setStatus(track, 'Ready — click waveform to set cue');
-  drawFrame(track.elements.canvas, track.buffer, track.beatTimes, track.cueTime, null, null);
+  redrawTrackFrame(track);
   updateMixBtn();
   maybeStopLoop();
 }
 
 /** Resume incoming at `continuationOffset` after the crossfade, playbackRate 1, same gain chain.
  *  Uses a private contSourceFade node to micro-crossfade with the ending inSourceFade.
- *  Both ramps end at fadeEndCtxTime − tailGapS so the handoff completes before the PV silence.
+ *  Equal-power micro-fade over HANDOFF_S ends at fadeEndCtxTime − tailGapS (before PV tail silence).
  *
  *  stretchRate = masterBpm / incomingBpm (1.0 for the non-stretch path).
  *  The PV advances through the original buffer at stretchRate × wall-clock speed, so the
@@ -116,15 +193,15 @@ function finishIncomingPlayback(track) {
 function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset, tailGapS = 0, stretchRate = 1) {
   const rampEndCtxTime = fadeEndCtxTime - tailGapS;
   const handoffCtxTime = rampEndCtxTime - HANDOFF_S;
-  // The PV's original-time position at rampEndCtxTime is continuationOffset − tailGapS × stretchRate,
-  // not continuationOffset − tailGapS. Using the latter would replay already-heard audio.
+  // The PV's original-time position at rampEndCtxTime is continuationOffset
+  // not continuationOffset − tailGapS. Using the latter would replay audio
   const pvPositionAtRampEnd  = continuationOffset - tailGapS * stretchRate;
   const handoffBufferOffset  = Math.max(0, pvPositionAtRampEnd - HANDOFF_S);
 
-  // Private gain node: ramps 0→1 over HANDOFF_S, ending at rampEndCtxTime (before PV silence).
   const contSourceFade = ctx.createGain();
+  const contHandoffFadeIn = getHandoffFadeInCurve();
   contSourceFade.gain.setValueAtTime(0.0, handoffCtxTime);
-  contSourceFade.gain.linearRampToValueAtTime(1.0, rampEndCtxTime);
+  contSourceFade.gain.setValueCurveAtTime(contHandoffFadeIn, handoffCtxTime, HANDOFF_S);
   contSourceFade.connect(inGain);
 
   const contSource = ctx.createBufferSource();
@@ -141,12 +218,52 @@ function scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, con
   const msUntilRampEnd = (rampEndCtxTime - ctx.currentTime) * 1000;
   setTimeout(() => {
     incoming.sourceNode = contSource;
-    incoming.cueTime = pvPositionAtRampEnd; // actual buffer position at rampEndCtxTime
+    incoming.cueTime = pvPositionAtRampEnd;
+    incoming.startBufferTime = pvPositionAtRampEnd;
     incoming.startContextTime = rampEndCtxTime;
   }, msUntilRampEnd + 50);
 }
 
-// Mix button.
+// After PV+dry dual blend: dry align source stops at `rampEndCtxTime`; continue dry buffer at playbackRate 1 from offset matching align playback
+function schedulePvDryContinuation(
+  incoming,
+  ctx,
+  inGain,
+  rampEndCtxTime,
+  dryBufferOffsetAtRampEnd,
+  pvSource,
+  dryAlignSource,
+) {
+  const tailEpsilon = 1e-4;
+  const clampedOffset = Math.max(
+    0,
+    Math.min(dryBufferOffsetAtRampEnd, incoming.buffer.duration - tailEpsilon),
+  );
+
+  const contSource = ctx.createBufferSource();
+  contSource.buffer = incoming.buffer;
+  contSource.connect(inGain);
+  contSource.start(rampEndCtxTime, clampedOffset);
+
+  incoming.mixStopTargets = [pvSource, dryAlignSource, contSource];
+
+  contSource.onended = () => {
+    if (incoming.sourceNode === contSource) {
+      finishIncomingPlayback(incoming);
+    }
+  };
+
+  const msUntilRampEnd = (rampEndCtxTime - ctx.currentTime) * 1000;
+  setTimeout(() => {
+    incoming.sourceNode = contSource;
+    incoming.cueTime = clampedOffset;
+    incoming.startBufferTime = clampedOffset;
+    incoming.startContextTime = rampEndCtxTime;
+    incoming.mixStopTargets = [pvSource, contSource];
+  }, msUntilRampEnd + 50);
+}
+
+// Mix button
 mixBtn.addEventListener('click', async () => {
   const master = getPlayingTrack();
   const incoming = getIdleTrack();
@@ -170,6 +287,7 @@ mixBtn.addEventListener('click', async () => {
     try {
       stretchedBuffer = await timeStretchBuffer(slice, master.bpm, incoming.bpm, ctx);
       stretchedBuffer = trimBufferToWallClock(ctx, stretchedBuffer, fadeDuration);
+      stretchedBuffer = clipBuffer(stretchedBuffer);
       stretchedTailS = measureTailSilence(stretchedBuffer);
     } catch (err) {
       setMixStatus(`Stretch error: ${err.message}`);
@@ -182,20 +300,20 @@ mixBtn.addEventListener('click', async () => {
 
   const continuationOffset = incoming.cueTime + sourceAdvance;
 
-  // Tail-gap guard: the PV leaves trailing silence at the end of stretchedBuffer — the
-  // exact amount varies by BPM ratio and which path ran (worklet vs pure-JS). Cap
-  // tailGapS so rampEndTime stays inside the fade window — otherwise inSourceFade hits 0
-  // at the downbeat and incoming is inaudible (see crossfade.js rampEndTime).
-  const TAIL_MARGIN_S = 0.01;
+  // Tail-gap: PV output often ends with trailing silence (length varies by BPM ratio,
+  // worklet vs pure-JS, browser). measureTailSilence scans the actual buffer; add a
+  // small margin so the stretch branch fades out before that silence while continuation
+  // ramps up. Cap so rampEnd stays inside the fade window
+  const TAIL_MARGIN_S = 0.027;
   const maxTailGapS = Math.max(0, fadeDuration - HANDOFF_S);
   const tailGapS = stretchedBuffer
     ? Math.min(stretchedTailS + TAIL_MARGIN_S, maxTailGapS)
     : 0;
-  // stretchRate: how fast the PV advances through the original buffer relative to wall clock.
-  // Used to position contSource so it picks up exactly where the PV left off.
+  // stretchRate: how fast the PV advances through the original buffer relative to wall clock
+  // Used to position contSource so it picks up exactly where the PV left off
   const stretchRate = stretchedBuffer ? master.bpm / incoming.bpm : 1;
 
-  // Re-validate master after the async stretch — it may have ended during processing.
+  // Re-validate master after the async stretch — it may have ended during processing
   if (!master.isPlaying || !master.gainNode || !master.sourceNode) {
     setMixStatus('Master track ended during preparation');
     mixBtn.disabled = false;
@@ -217,10 +335,18 @@ mixBtn.addEventListener('click', async () => {
     return;
   }
 
-  const { nextDownbeatCtxTime, nextDownbeatBufferTime, fadeDuration: scheduledFade, inSource, inGain } = result;
+  const {
+    nextDownbeatCtxTime,
+    nextDownbeatBufferTime,
+    fadeDuration: scheduledFade,
+    inSource,
+    inGain,
+    dryAlignSource,
+  } = result;
   const fadeEndCtxTime = nextDownbeatCtxTime + scheduledFade;
+  const rampEndCtxTime = fadeEndCtxTime - tailGapS;
 
-  // Wire AnalyserNode for the incoming track, routing through its effects chain if present.
+  // Wire AnalyserNode for the incoming track, routing through its effects chain if present
   const inAnalyser = ctx.createAnalyser();
   inAnalyser.fftSize = 2048;
   inAnalyser.connect(ctx.destination);
@@ -233,8 +359,30 @@ mixBtn.addEventListener('click', async () => {
 
   const tailEpsilon = 1e-4;
   if (continuationOffset < incoming.buffer.duration - tailEpsilon) {
-    scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset, tailGapS, stretchRate);
+    if (dryAlignSource) {
+      // Match crossfade dryAlign playbackRate (true BPM ratio, not computePlaybackRate clamp)
+      // Derive elapsed from scheduled fade and tailGap so it matches rampEnd math as best as we can
+      const alignRate = playbackRateForPvDryAlign(master.bpm, incoming.bpm);
+      const elapsedBlend = scheduledFade - tailGapS;
+      const dryBufferOffsetAtRampEnd = snapBufferOffset(
+        incoming.buffer,
+        incoming.cueTime + elapsedBlend * alignRate,
+      );
+      schedulePvDryContinuation(
+        incoming,
+        ctx,
+        inGain,
+        rampEndCtxTime,
+        dryBufferOffsetAtRampEnd,
+        inSource,
+        dryAlignSource,
+      );
+    } else {
+      scheduleIncomingContinuation(incoming, ctx, inGain, fadeEndCtxTime, continuationOffset, tailGapS, stretchRate);
+      incoming.mixStopTargets = null;
+    }
   } else {
+    incoming.mixStopTargets = dryAlignSource ? [inSource, dryAlignSource] : null;
     inSource.onended = () => {
       if (incoming.sourceNode === inSource) {
         finishIncomingPlayback(incoming);
@@ -242,17 +390,18 @@ mixBtn.addEventListener('click', async () => {
     };
   }
 
-  // Mark master's crossfade region for the visualizer.
+  // Mark master's crossfade region for the visualizer
   master.crossfadeRegion = {
     start: nextDownbeatBufferTime,
     end: nextDownbeatBufferTime + scheduledFade,
   };
 
-  // Update incoming track state so RAF loop animates its playhead.
+  // Update incoming track state so RAF loop animates its playhead
   incoming.sourceNode = inSource;
   incoming.gainNode = inGain;
   incoming.analyserNode = inAnalyser;
   incoming.isPlaying = true;
+  incoming.startBufferTime = incoming.cueTime;
   incoming.startContextTime = nextDownbeatCtxTime;
   incoming.elements.playBtn.disabled = true;
   incoming.elements.stopBtn.disabled = false;
@@ -261,7 +410,7 @@ mixBtn.addEventListener('click', async () => {
   setMixStatus('Mixing…');
   startLoop();
 
-  // After the fade completes, clean up master and rewire incoming effects chain.
+  // After the fade completes, clean up master and rewire incoming effects chain
   const msUntilEnd = (fadeEndCtxTime - ctx.currentTime) * 1000;
   setTimeout(() => {
     disconnectChain(master.effectsChain);
@@ -274,7 +423,7 @@ mixBtn.addEventListener('click', async () => {
     master.elements.playBtn.disabled = false;
     master.elements.stopBtn.disabled = true;
     setStatus(master, 'Ready — click waveform to set cue');
-    drawFrame(master.elements.canvas, master.buffer, master.beatTimes, master.cueTime, null, null);
+    redrawTrackFrame(master);
 
     setMixStatus('');
     updateMixBtn();
@@ -282,7 +431,7 @@ mixBtn.addEventListener('click', async () => {
   }, msUntilEnd + 50);
 });
 
-// Fetch a URL and decode to AudioBuffer.
+// Fetch a URL and decode to AudioBuffer
 async function loadFromURL(track, url) {
   setStatus(track, 'Loading…');
   try {
@@ -295,7 +444,7 @@ async function loadFromURL(track, url) {
   }
 }
 
-// Read a File and decode to AudioBuffer.
+// Read a File and decode to AudioBuffer
 async function loadFromFile(track, file) {
   setStatus(track, 'Reading…');
   try {
@@ -306,7 +455,7 @@ async function loadFromFile(track, file) {
   }
 }
 
-// Decode an ArrayBuffer to an AudioBuffer, then hand off to onBufferReady.
+// Decode an ArrayBuffer to an AudioBuffer, then hand off to onBufferReady
 async function decodeAndReady(track, arrayBuffer) {
   setStatus(track, 'Decoding…');
   const ctx = getAudioContext();
@@ -318,7 +467,7 @@ async function decodeAndReady(track, arrayBuffer) {
   }
 }
 
-// Called once an AudioBuffer is ready: analyze, visualize, enable controls.
+// Called once an AudioBuffer is ready: analyze, visualize, enable controls
 async function onBufferReady(track, audioBuffer) {
   if (track.isPlaying) stopTrack(track);
 
@@ -330,11 +479,12 @@ async function onBufferReady(track, audioBuffer) {
   const { bpm, beatTimes } = await detectBPM(audioBuffer);
   track.bpm = bpm;
   track.beatTimes = beatTimes;
-  track.elements.bpmDisplay.textContent = bpm.toFixed(1);
+  track.elements.bpmInput.disabled = false;
+  track.elements.bpmInput.value = bpm.toFixed(1);
 
-  drawFrame(track.elements.canvas, audioBuffer, beatTimes, track.cueTime, null, null);
+  redrawTrackFrame(track);
 
-  // Create effects chain on first load; reset audio params and rebuild panel DOM on every load.
+  // Create effects chain on first load; reset audio params and rebuild panel DOM on every load
   const fxCtx = getAudioContext();
   if (!track.effectsChain) {
     track.effectsChain = createEffectsChain(fxCtx);
@@ -352,7 +502,7 @@ async function onBufferReady(track, audioBuffer) {
   updateMixBtn();
 }
 
-// Replace the canvas click listener each time a new buffer is loaded.
+// Replace the canvas click listener each time a new buffer is loaded
 function attachCueClickHandler(track) {
   const canvas = track.elements.canvas;
 
@@ -364,14 +514,14 @@ function attachCueClickHandler(track) {
     const scaleX = canvas.width / canvas.getBoundingClientRect().width;
     const cueTime = (e.offsetX * scaleX / canvas.width) * track.buffer.duration;
     track.cueTime = Math.max(0, Math.min(cueTime, track.buffer.duration - 0.01));
-    drawFrame(canvas, track.buffer, track.beatTimes, track.cueTime, null, track.crossfadeRegion);
+    redrawTrackFrame(track);
   };
 
   canvas.addEventListener('click', track.cueClickHandler);
   canvas.style.cursor = 'crosshair';
 }
 
-// Build the audio graph for a track: source → gain → [effects] → analyser → destination.
+// Build the audio graph for a track: source -> gain -> [effects] -> analyser -> destination
 function buildAudioGraph(ctx, track) {
   const gainNode = ctx.createGain();
   gainNode.gain.setValueAtTime(1.0, ctx.currentTime);
@@ -390,7 +540,7 @@ function buildAudioGraph(ctx, track) {
   track.analyserNode = analyserNode;
 }
 
-// Start playback: AudioBufferSourceNode → GainNode → AnalyserNode → destination.
+// Start playback: AudioBufferSourceNode -> GainNode -> AnalyserNode -> destination
 function playTrack(track) {
   if (!track.buffer || track.isPlaying) return;
 
@@ -401,7 +551,7 @@ function playTrack(track) {
   const sourceNode = ctx.createBufferSource();
   sourceNode.buffer = track.buffer;
 
-  // BPM alignment: if the other track is already playing, this is the incoming track.
+  // BPM alignment: if the other track is already playing, this is the incoming track
   const other = otherTrack(track);
   if (other.isPlaying && other.bpm && track.bpm) {
     sourceNode.playbackRate.value = computePlaybackRate(other.bpm, track.bpm);
@@ -409,6 +559,7 @@ function playTrack(track) {
 
   sourceNode.connect(track.gainNode);
   sourceNode.start(0, track.cueTime);
+  track.startBufferTime = track.cueTime;
   track.startContextTime = ctx.currentTime;
 
   sourceNode.onended = () => {
@@ -421,7 +572,7 @@ function playTrack(track) {
       track.elements.playBtn.disabled = false;
       track.elements.stopBtn.disabled = true;
       setStatus(track, 'Ready — click waveform to set cue');
-      drawFrame(track.elements.canvas, track.buffer, track.beatTimes, track.cueTime, null, null);
+      redrawTrackFrame(track);
       updateMixBtn();
       maybeStopLoop();
     }
@@ -437,7 +588,7 @@ function playTrack(track) {
   startLoop();
 }
 
-// Stop playback: ramp gain to 0 before calling stop (never cut at non-zero amplitude).
+// Stop playback: ramp gain to 0 before calling stop 
 function stopTrack(track) {
   if (!track.isPlaying || !track.sourceNode) return;
 
@@ -445,9 +596,18 @@ function stopTrack(track) {
   const { gainNode, sourceNode } = track;
 
   gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
-  sourceNode.stop(ctx.currentTime + 0.1);
 
-  // Disconnect effects chain after the source has gone silent.
+  const stopTargets = track.mixStopTargets?.length ? track.mixStopTargets : [sourceNode];
+  track.mixStopTargets = null;
+  for (const s of stopTargets) {
+    try {
+      s.stop(ctx.currentTime + 0.1);
+    } catch (_) {
+      /* already stopped */
+    }
+  }
+
+  // Disconnect effects chain after the source has gone silent
   if (track.effectsChain) {
     setTimeout(() => disconnectChain(track.effectsChain), 150);
   }
@@ -464,29 +624,18 @@ function stopTrack(track) {
   setStatus(track, 'Ready — click waveform to set cue');
 
   if (track.buffer) {
-    drawFrame(track.elements.canvas, track.buffer, track.beatTimes, track.cueTime, null, null);
+    redrawTrackFrame(track);
   }
 
   updateMixBtn();
   maybeStopLoop();
 }
 
-// RAF loop — updates playhead for every playing track each frame.
+// RAF loop
 function animationLoop() {
-  const ctx = getAudioContext();
-
   for (const track of Object.values(tracks)) {
     if (!track.isPlaying || !track.buffer) continue;
-    const elapsed = Math.max(0, ctx.currentTime - track.startContextTime);
-    const playheadTime = track.cueTime + elapsed;
-    drawFrame(
-      track.elements.canvas,
-      track.buffer,
-      track.beatTimes,
-      track.cueTime,
-      playheadTime,
-      track.crossfadeRegion,
-    );
+    redrawTrackFrame(track);
   }
 
   rafId = requestAnimationFrame(animationLoop);

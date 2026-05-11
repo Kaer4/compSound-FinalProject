@@ -129,11 +129,27 @@ canvas {
   margin-left: 8px;
 }
 
-.bpm-label span {
-  color: #88cc00;
-  font-size: 1rem;
+.bpm-input {
+  margin-left: 6px;
+  width: 4.75rem;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 0.95rem;
   font-weight: bold;
-  margin-left: 4px;
+  color: #88cc00;
+  background: #0d0d0d;
+  border: 1px solid #333;
+  border-radius: 2px;
+}
+
+.bpm-input:focus {
+  outline: none;
+  border-color: #6484e8;
+}
+
+.bpm-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .status {
@@ -332,8 +348,8 @@ button:disabled {
   font-size: 0.6rem;
   letter-spacing: 0.1em;
   background: transparent;
-  border: 1px solid #333;
-  color: #555;
+  border: 1px solid #444;
+  color: #888;
   padding: 2px 7px;
   cursor: pointer;
   transition: all 0.1s;
@@ -355,7 +371,7 @@ button:disabled {
 .fx-label {
   font-size: 0.6rem;
   letter-spacing: 0.08em;
-  color: #555;
+  color: #aaa;
   width: 64px;
   flex-shrink: 0;
   text-transform: uppercase;
@@ -391,7 +407,7 @@ button:disabled {
 
 .fx-value {
   font-size: 0.6rem;
-  color: #555;
+  color: #aaa;
   width: 46px;
   text-align: right;
   flex-shrink: 0;
@@ -405,8 +421,8 @@ button:disabled {
   font-size: 0.55rem;
   letter-spacing: 0.08em;
   background: transparent;
-  border: 1px solid #333;
-  color: #555;
+  border: 1px solid #444;
+  color: #888;
   padding: 2px 5px;
   cursor: pointer;
   flex-shrink: 0;
@@ -430,8 +446,8 @@ button:disabled {
   font-size: 0.55rem;
   letter-spacing: 0.08em;
   background: transparent;
-  border: 1px solid #333;
-  color: #555;
+  border: 1px solid #444;
+  color: #888;
   padding: 2px 8px;
   cursor: pointer;
   transition: all 0.1s;
@@ -459,8 +475,8 @@ button:disabled {
   font-size: 0.6rem;
   letter-spacing: 0.08em;
   background: transparent;
-  border: 1px solid #333;
-  color: #555;
+  border: 1px solid #444;
+  color: #888;
   padding: 2px 8px;
   cursor: pointer;
   transition: all 0.1s;

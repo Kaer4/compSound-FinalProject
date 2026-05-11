@@ -1,15 +1,13 @@
 // Phase Vocoder AudioWorkletProcessor
-// Self-contained — no imports (worklet scope restriction).
-// Algorithm: STFT analysis → phase manipulation → ISTFT synthesis (overlap-add).
-// Stretches time without changing pitch.
-// Processes all input channels independently (stereo-safe).
+// Algorithm: STFT analysis to phase manipulation to ISTFT synthesis (overlap-add)
+// Stretches time without changing pitch
+// Processes all input channels independently
 
-const N  = 4096; // FFT size (power of 2) — finer bins than 2048 for cleaner mix material
-const Ha = 1024; // analysis hop = N/4 → 75% overlap (aligned with alignment.js PV_*)
+const N  = 4096; // FFT size (power of 2) — more bins than 2048 for cleaner mix material
+const Ha = 1024; // Analysis hop = N/4 to 75% overlap 
 
-// ---------------------------------------------------------------------------
 // Hann window
-// ---------------------------------------------------------------------------
+// using it for analysis and synthesis parts
 function makeHann(size) {
   const w = new Float32Array(size);
   for (let i = 0; i < size; i++) {
@@ -18,9 +16,8 @@ function makeHann(size) {
   return w;
 }
 
-// ---------------------------------------------------------------------------
 // Bit-reversal permutation (in-place on two parallel arrays)
-// ---------------------------------------------------------------------------
+// rearrage the FFT buffer indices so we can run the FFT in-place
 function bitReverse(re, im, n) {
   let j = 0;
   for (let i = 1; i < n; i++) {
@@ -34,7 +31,7 @@ function bitReverse(re, im, n) {
   }
 }
 
-// Cooley-Tukey radix-2 in-place FFT.
+// Cooley-Tukey radix-2 in-place FFT
 function fft(re, im) {
   const n = re.length;
   bitReverse(re, im, n);
@@ -61,29 +58,25 @@ function fft(re, im) {
   }
 }
 
-// In-place IFFT: conjugate → FFT → conjugate → scale by 1/N.
+// In-place IFFT: conjugate _> FFT -> conjugate -> scale by 1/N
 function ifft(re, im) {
   const n = re.length;
-  // Conjugate input.
+  // Conjugate input
   for (let i = 0; i < n; i++) im[i] = -im[i];
   fft(re, im);
-  // Conjugate output and scale.
+  // Conjugate output and scale
   const inv = 1 / n;
   for (let i = 0; i < n; i++) { re[i] *= inv; im[i] = -im[i] * inv; }
 }
 
-// ---------------------------------------------------------------------------
 // Phase wrapping to [-π, π]
-// ---------------------------------------------------------------------------
 function wrap(p) {
   while (p >  Math.PI) p -= 2 * Math.PI;
   while (p < -Math.PI) p += 2 * Math.PI;
   return p;
 }
 
-// ---------------------------------------------------------------------------
 // Per-channel state factory
-// ---------------------------------------------------------------------------
 const NORM_EPS = 1e-8;
 
 function makeChannelState() {
@@ -101,9 +94,7 @@ function makeChannelState() {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Processor
-// ---------------------------------------------------------------------------
 class PhaseVocoderProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super(options);

@@ -3,25 +3,25 @@
  *
  * Signal flow:
  *   inputNode
- *     → eq.low (lowshelf 320 Hz)
- *     → eq.mid (peaking 1 kHz)
- *     → eq.high (highshelf 3.2 kHz)
- *     → filter.node (LPF/HPF, neutral when disabled)
- *     → delay.dry  ──┐
- *     → delay.node → delay.feedback (loop back to delay.node)
- *     → delay.wet  ──┴→ delay.mix (summing node)
- *     → reverb.dry      ──┐
- *     → reverb.convolver → reverb.wet ──┴→ outputNode
+ *     -> eq.low (lowshelf 320 Hz)
+ *     -> eq.mid (peaking 1 kHz)
+ *     -> eq.high (highshelf 3.2 kHz)
+ *     -> filter.node (LPF/HPF, neutral when disabled)
+ *     -> delay.dry  ──┐
+ *     -> delay.node -> delay.feedback (loop back to delay.node)
+ *     -> delay.wet  ──┴-> delay.mix (summing node)
+ *     -> reverb.dry      ──┐
+ *     -> reverb.convolver -> reverb.wet ──┴-> outputNode
  */
 
 /**
- * Create all effect nodes for one track.
- * Parameters are set to neutral defaults (no audible effect).
+ * Create all effect nodes for one track
+ * Parameters are set to neutral defaults so no audible effect
  * @param {AudioContext} audioCtx
  * @returns {object} chain
  */
 export function createEffectsChain(audioCtx) {
-  // ── 3-band EQ ──────────────────────────────────────────────────────────────
+  //3-band EQ (low med high)
   const eqLow = audioCtx.createBiquadFilter();
   eqLow.type = 'lowshelf';
   eqLow.frequency.value = 320;
@@ -38,14 +38,14 @@ export function createEffectsChain(audioCtx) {
   eqHigh.frequency.value = 3200;
   eqHigh.gain.value = 0;
 
-  // ── Resonant filter ─────────────────────────────────────────────────────────
+  // Resonant filter
   // Neutral when disabled: LPF at 20 kHz (or HPF at 20 Hz) passes everything.
   const filterNode = audioCtx.createBiquadFilter();
   filterNode.type = 'lowpass';
   filterNode.frequency.value = 20000;
   filterNode.Q.value = 1.0;
 
-  // ── Delay ───────────────────────────────────────────────────────────────────
+  //Delay
   const delayNode = audioCtx.createDelay(2.0);
   delayNode.delayTime.value = 0.375;
 
@@ -53,20 +53,21 @@ export function createEffectsChain(audioCtx) {
   delayFeedback.gain.value = 0.4;
 
   const delayDry = audioCtx.createGain();
-  delayDry.gain.value = 1.0;   // wet=0 by default → dry=1 → pass-through
+  delayDry.gain.value = 1.0;   // wet=0 by default -> dry=1 -> pass-through
 
   const delayWet = audioCtx.createGain();
   delayWet.gain.value = 0.0;
 
   const delayMix = audioCtx.createGain(); // summing node, always gain=1
+  //learned this lesson from another assignment!
   delayMix.gain.value = 1.0;
 
-  // ── Reverb ──────────────────────────────────────────────────────────────────
+  //Reverb
   const convolver = audioCtx.createConvolver();
   convolver.buffer = buildIR(audioCtx, 2.5, 2.0);
 
   const reverbDry = audioCtx.createGain();
-  reverbDry.gain.value = 1.0;  // wet=0 by default → dry=1 → pass-through
+  reverbDry.gain.value = 1.0;  // wet=0 by default -> dry=1 -> pass-through
 
   const reverbWet = audioCtx.createGain();
   reverbWet.gain.value = 0.0;
@@ -121,8 +122,8 @@ export function resetEffectsChain(chain, audioCtx) {
 }
 
 /**
- * Wire the effects chain between inputNode and outputNode.
- * Safe to call multiple times after disconnectChain().
+ * Wire the effects chain between inputNode and outputNode
+ * Safe to call multiple times after disconnectChain()
  * @param {object} chain
  * @param {AudioNode} inputNode  - typically the track's GainNode
  * @param {AudioNode} outputNode - typically the track's AnalyserNode
@@ -138,7 +139,7 @@ export function connectChain(chain, inputNode, outputNode) {
   // Filter
   eq.high.connect(filter.node);
 
-  // Delay — dry path bypasses delayNode, wet path goes through it + feedback loop
+  // Delay: dry path bypasses delayNode, wet path goes through it + feedback loop
   filter.node.connect(delay.dry);
   filter.node.connect(delay.node);
   delay.node.connect(delay.feedback);
@@ -147,7 +148,7 @@ export function connectChain(chain, inputNode, outputNode) {
   delay.dry.connect(delay.mix);
   delay.wet.connect(delay.mix);
 
-  // Reverb — dry bypasses convolver
+  // Reverb
   delay.mix.connect(reverb.dry);
   delay.mix.connect(reverb.convolver);
   reverb.convolver.connect(reverb.wet);
@@ -156,8 +157,8 @@ export function connectChain(chain, inputNode, outputNode) {
 }
 
 /**
- * Disconnect all nodes in the chain (internal + boundary connections).
- * Node objects and their parameter values are preserved for reconnection.
+ * Disconnect all nodes in the chain (internal + boundary connections)
+ * Node objects and their parameter values are preserved for reconnection
  * @param {object|null} chain
  */
 export function disconnectChain(chain) {
@@ -175,10 +176,10 @@ export function disconnectChain(chain) {
 }
 
 /**
- * Build a programmatic reverb impulse response (exponential noise decay).
+ * Build a programmatic reverb impulse response (exponential noise decay)
  * @param {AudioContext} audioCtx
- * @param {number} duration  - IR length in seconds
- * @param {number} decay     - exponent controlling tail falloff (higher = shorter tail)
+ * @param {number} duration  aka IR length in seconds
+ * @param {number} decay     aka exponent controlling tail falloff (higher = shorter tail)
  * @returns {AudioBuffer}
  */
 export function buildIR(audioCtx, duration = 2.5, decay = 2.0) {

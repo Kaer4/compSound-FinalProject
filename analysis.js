@@ -1,8 +1,9 @@
 /**
  * Detects the BPM of an AudioBuffer and computes the beat grid.
- * Algorithm: amplitude envelope → onset signal (first-order diff + threshold)
- * → autocorrelation over lags for 60–180 BPM → peak pick → beat timestamps.
- *
+ * Algorithm: amplitude envelope -> onset signal (first-order diff + threshold)
+ * -> autocorrelation over lags for 60–180 BPM -> harmonic candidates from peaks
+ * -> best BPM by onset-grid alignment + autocorrect -> sesquialtera (×1.5) check → beat timestamps.
+ * this was really hard to understand and I had to google a lot to understand it. Some songs worked, others didn't
  * @param {AudioBuffer} audioBuffer
  * @returns {Promise<{ bpm: number, beatTimes: number[] }>}
  */
@@ -76,52 +77,157 @@ function buildBeatGrid(bpm, onsets, threshold, sampleRate, duration) {
   return beatTimes;
 }
 
-// Autocorrelation over lags corresponding to 60–180 BPM.
-// Downsamples to a reduced rate first so autocorrelation is fast.
+// How well does a BPM grid line up with onset energy (phase search)?
+function gridAlignmentScore(bpm, decimated, reducedRate) {
+  const beatSamples = (reducedRate * 60) / bpm;
+  if (beatSamples < 2 || beatSamples > decimated.length / 6) return 0;
+
+  const phases = 24;
+  let best = 0;
+  for (let p = 0; p < phases; p++) {
+    const phaseOff = (p / phases) * beatSamples;
+    let sum = 0;
+    let count = 0;
+    for (let t = phaseOff; t < decimated.length; t += beatSamples) {
+      const i = Math.round(t);
+      if (i >= 0 && i < decimated.length) {
+        sum += decimated[i];
+        count++;
+      }
+    }
+    if (count === 0) continue;
+    const avg = sum / count;
+    if (avg > best) best = avg;
+  }
+  return best;
+}
+
+/** Combined score for a tempo hypothesis (grid alignment + normalized autocorr). */
+function comboScoreForBpm(bpm, corrs, lagMin, lagMax, reducedRate, decimated, n, autocorrWeight) {
+  const lag = Math.round((reducedRate * 60) / bpm);
+  if (lag < lagMin || lag > lagMax) return -Infinity;
+  const autocorrPart = corrs[lag - lagMin] / n;
+  const gridPart = gridAlignmentScore(bpm, decimated, reducedRate);
+  return gridPart + autocorrPart * autocorrWeight;
+}
+
+/**
+ * Prefer BPM × 1.5 when autocorr/onsets weakly favor the slower sesquialtera aka 3:2 ratio
+ * fixes 90→60, 126→84 while songs like Nice For What still pick ~93 over ~62 via scores.
+ */
+function preferSesquialteraBpm(baseBpm, corrs, lagMin, lagMax, reducedRate, decimated, n, autocorrWeight, globalPeakCorr) {
+  const sesqui = Math.round(baseBpm * 1.5 * 10) / 10;
+  if (sesqui < 60 || sesqui > 180 || Math.abs(sesqui - baseBpm) < 0.5) return baseBpm;
+
+  const s0 = comboScoreForBpm(baseBpm, corrs, lagMin, lagMax, reducedRate, decimated, n, autocorrWeight);
+  const s1 = comboScoreForBpm(sesqui, corrs, lagMin, lagMax, reducedRate, decimated, n, autocorrWeight);
+  if (s0 === -Infinity || s1 === -Infinity) return baseBpm;
+
+  const lag0 = Math.round((reducedRate * 60) / baseBpm);
+  const lag1 = Math.round((reducedRate * 60) / sesqui);
+  const ac0 = corrs[lag0 - lagMin];
+  const ac1 = corrs[lag1 - lagMin];
+
+  // Avoid stealing correct ~120 BPM into ~180; allow uplift when base is slow or sesqui is moderate.
+  const clearWin =
+    s1 >= s0 * 1.004 && (baseBpm <= 106 || sesqui <= 155);
+  // Keep ≤ ~87 so ~93 BPM tracks (Nice For What) are not pulled toward ~140 via autocorr noise.
+  const harmonicRescue =
+    baseBpm <= 87 &&
+    s1 >= s0 * 0.905 &&
+    ac1 >= Math.max(ac0 * 0.52, globalPeakCorr * 0.22);
+
+  if (clearWin || harmonicRescue) return sesqui;
+  return baseBpm;
+}
+
+// Autocorrelation over lags corresponding to 60–180 BPM, then pick among harmonic
+// candidates using onset-grid alignment (fixes hip-hop / swung tracks where raw
+// autocorr favors a harmonic and old octave logic halved ~125 → ~62 vs true ~93).
 function autocorrelationBPM(onsets, sampleRate) {
-  // Downsample to ~200 Hz for speed — onset signal doesn't need full resolution.
   const decimation = Math.floor(sampleRate / 200);
   const decimated = downsample(onsets, decimation);
   const reducedRate = sampleRate / decimation;
 
   const lagMin = Math.floor(reducedRate * 60 / 180); // lag for 180 BPM
-  const lagMax = Math.floor(reducedRate * 60 / 60);  // lag for 60 BPM
+  const lagMax = Math.floor(reducedRate * 60 / 60); // lag for 60 BPM
   const n = decimated.length;
 
-  let bestLag = lagMin;
-  let bestCorr = -Infinity;
+  const numLags = lagMax - lagMin + 1;
+  const corrs = new Float32Array(numLags);
 
-  for (let lag = lagMin; lag <= lagMax; lag++) {
+  for (let li = 0; li < numLags; li++) {
+    const lag = lagMin + li;
     let corr = 0;
     const limit = n - lag;
     for (let i = 0; i < limit; i++) {
       corr += decimated[i] * decimated[i + lag];
     }
-    if (corr > bestCorr) {
-      bestCorr = corr;
-      bestLag = lag;
+    corrs[li] = corr;
+  }
+
+  let globalBestLi = 0;
+  for (let li = 1; li < numLags; li++) {
+    if (corrs[li] > corrs[globalBestLi]) globalBestLi = li;
+  }
+
+  const peaks = [];
+  for (let li = 1; li < numLags - 1; li++) {
+    if (corrs[li] > corrs[li - 1] && corrs[li] > corrs[li + 1]) {
+      peaks.push({ lag: lagMin + li, corr: corrs[li] });
+    }
+  }
+  peaks.sort((a, b) => b.corr - a.corr);
+
+  const candidates = new Set();
+  candidates.add(lagMin + globalBestLi);
+
+  const maxPeaks = 12;
+  const corrFloor = corrs[globalBestLi] * 0.35;
+  for (let p = 0; p < Math.min(maxPeaks, peaks.length); p++) {
+    if (peaks[p].corr < corrFloor) break;
+    const lag = peaks[p].lag;
+    candidates.add(lag);
+    const half = Math.floor(lag / 2);
+    const dbl = lag * 2;
+    const third = Math.floor(lag / 3);
+    const triple = lag * 3;
+    if (half >= lagMin && half <= lagMax) candidates.add(half);
+    if (dbl >= lagMin && dbl <= lagMax) candidates.add(dbl);
+    if (third >= lagMin && third <= lagMax) candidates.add(third);
+    if (triple >= lagMin && triple <= lagMax) candidates.add(triple);
+  }
+
+  const autocorrWeight = 0.34;
+  const globalPeakCorr = corrs[globalBestLi];
+
+  let bestBpm = (reducedRate * 60) / (lagMin + globalBestLi);
+  let bestCombo = -Infinity;
+
+  for (const lag of candidates) {
+    if (lag < lagMin || lag > lagMax) continue;
+    const bpm = (reducedRate * 60) / lag;
+    if (bpm < 60 || bpm > 180) continue;
+    const combo = comboScoreForBpm(bpm, corrs, lagMin, lagMax, reducedRate, decimated, n, autocorrWeight);
+    if (combo > bestCombo) {
+      bestCombo = combo;
+      bestBpm = bpm;
     }
   }
 
-  // Octave-correction: songs with strong 8th-note patterns often score higher at
-  // the half-beat lag (2× BPM) than the true beat lag. If doubling the lag
-  // (halving the BPM) is still within the valid range and scores ≥ 80% of the
-  // best correlation, the detected tempo is almost certainly a 2× harmonic error
-  // — prefer the lower, more likely fundamental tempo.
-  const doubleLag = bestLag * 2;
-  if (doubleLag <= lagMax) {
-    let doubleCorr = 0;
-    const limit = n - doubleLag;
-    for (let i = 0; i < limit; i++) {
-      doubleCorr += decimated[i] * decimated[i + doubleLag];
-    }
-    if (doubleCorr >= bestCorr * 0.8) {
-      bestLag = doubleLag;
-    }
-  }
+  bestBpm = preferSesquialteraBpm(
+    bestBpm,
+    corrs,
+    lagMin,
+    lagMax,
+    reducedRate,
+    decimated,
+    n,
+    autocorrWeight,
+    globalPeakCorr,
+  );
 
-  const bpm = (reducedRate * 60) / bestLag;
-  return Math.round(bpm * 10) / 10;
+  return Math.round(bestBpm * 10) / 10;
 }
 
 function downsample(signal, factor) {
