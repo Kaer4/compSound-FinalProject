@@ -1,15 +1,15 @@
 /**
  * Builds and wires the effects rack UI for one track.
- * All sliders connect directly to AudioParam — no intermediate state.
+ * All sliders connect directly to AudioParam
  */
 
 import { buildIR } from './effects.js';
 
 /**
- * @param {string}       trackId  - 'a' or 'b'
- * @param {object}       chain    - from createEffectsChain()
+ * @param {string}       trackId  'A' or ' B'
+ * @param {object}       chain    from createEffectsChain()
  * @param {AudioContext} audioCtx
- * @returns {HTMLElement} - the populated .effects-panel div
+ * @returns {HTMLElement} the populated .effects-panel div
  */
 export function buildEffectsPanel(trackId, chain, audioCtx) {
   const panel = document.createElement('div');
@@ -119,8 +119,10 @@ export function buildEffectsPanel(trackId, chain, audioCtx) {
   wirePanel(panel, trackId, chain, audioCtx);
   return panel;
 }
+//I wanted to add a pitch shift effect but I couldn't get it to work
 
-// ─── HTML helpers ─────────────────────────────────────────────────────────────
+//HTML helpers
+
 
 function eqBandHTML(band, trackId, label) {
   return `
@@ -134,13 +136,12 @@ function eqBandHTML(band, trackId, label) {
   `;
 }
 
-// ─── Wiring ────────────────────────────────────────────────────────────────────
 
 function wirePanel(panel, id, chain, audioCtx) {
   const now = () => audioCtx.currentTime;
   const q   = sel => panel.querySelector(sel);
 
-  // ── EQ ──────────────────────────────────────────────────────────────────────
+  //EQ 
   const eqBands = [
     { band: 'low',  node: chain.eq.low  },
     { band: 'mid',  node: chain.eq.mid  },
@@ -170,7 +171,7 @@ function wirePanel(panel, id, chain, audioCtx) {
     });
   }
 
-  // Single RESET button — zeros all three bands.
+  //Single RESET button to put all bands back to 0
   q(`#eq-reset-${id}`).addEventListener('click', () => {
     for (const { band, node } of eqBands) {
       node.gain.setValueAtTime(0, now());
@@ -180,7 +181,7 @@ function wirePanel(panel, id, chain, audioCtx) {
     }
   });
 
-  // ── Filter ───────────────────────────────────────────────────────────────────
+  //LPF and HPF
   const filterToggle  = q(`#filter-toggle-${id}`);
   const lpfBtn        = q(`#lpf-btn-${id}`);
   const hpfBtn        = q(`#hpf-btn-${id}`);
@@ -189,7 +190,7 @@ function wirePanel(panel, id, chain, audioCtx) {
   const qSlider       = q(`#filter-q-${id}`);
   const qDisplay      = q(`#filter-q-val-${id}`);
 
-  // Log-scale mapping: slider 0→1 maps to 20→20000 Hz via 20 × 1000^t
+  //Log-scale mapping: slider 0->1 maps to 20->20000 Hz via 20 × 1000^t
   const sliderToHz = t  => 20 * Math.pow(1000, t);
   const neutralHz  = () => chain.filter.node.type === 'lowpass' ? 20000 : 20;
 
@@ -231,7 +232,7 @@ function wirePanel(panel, id, chain, audioCtx) {
     qDisplay.textContent = q.toFixed(1);
   });
 
-  // ── Delay ────────────────────────────────────────────────────────────────────
+  //Delay
   const delayToggle   = q(`#delay-toggle-${id}`);
   const timeSlider    = q(`#delay-time-${id}`);
   const timeDisplay   = q(`#delay-time-val-${id}`);
@@ -270,7 +271,7 @@ function wirePanel(panel, id, chain, audioCtx) {
     if (chain.delay.enabled) applyDelayMix(true);
   });
 
-  // ── Reverb ───────────────────────────────────────────────────────────────────
+  //Reverb
   const reverbToggle  = q(`#reverb-toggle-${id}`);
   const revMixSlider  = q(`#reverb-mix-${id}`);
   const revMixDisplay = q(`#reverb-mix-val-${id}`);
@@ -311,7 +312,7 @@ function wirePanel(panel, id, chain, audioCtx) {
   decaySlider.addEventListener('change', rebuildIR);
 }
 
-// ─── Formatting helpers ────────────────────────────────────────────────────────
+//Formatting helpers
 
 function formatDB(dB) {
   return `${dB > 0 ? '+' : ''}${dB.toFixed(1)} dB`;
