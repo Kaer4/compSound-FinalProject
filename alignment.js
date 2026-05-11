@@ -80,6 +80,23 @@ export function trimBufferToWallClock(audioCtx, audioBuffer, durationSeconds) {
   return out;
 }
 
+export function normalizeBuffer(audioBuffer) {
+  let peak = 0;
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const data = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > peak) peak = abs;
+    }
+  }
+  if (peak <= 1.0) return audioBuffer;
+  const scale = 1 / peak;
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const data = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) data[i] *= scale;
+  }
+  return audioBuffer;
+}
 
 export async function timeStretchBuffer(audioBuffer, masterBpm, incomingBpm, audioCtx) {
   try {

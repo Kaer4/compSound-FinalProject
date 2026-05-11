@@ -1,6 +1,6 @@
 import { detectBPM } from './analysis.js';
 import { drawFrame } from './visualizer.js';
-import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock, measureTailSilence } from './alignment.js';
+import { computePlaybackRate, needsTimeStretch, timeStretchBuffer, extractSegment, trimBufferToWallClock, measureTailSilence, normalizeBuffer } from './alignment.js';
 import { scheduleMix, getFadeDurationSeconds, HANDOFF_S } from './crossfade.js';
 import { createEffectsChain, connectChain, disconnectChain, resetEffectsChain } from './effects.js';
 import { buildEffectsPanel } from './effects-ui.js';
@@ -169,6 +169,7 @@ mixBtn.addEventListener('click', async () => {
     try {
       stretchedBuffer = await timeStretchBuffer(slice, master.bpm, incoming.bpm, ctx);
       stretchedBuffer = trimBufferToWallClock(ctx, stretchedBuffer, fadeDuration);
+      stretchedBuffer = normalizeBuffer(stretchedBuffer);
     } catch (err) {
       setMixStatus(`Stretch error: ${err.message}`);
       mixBtn.disabled = false;
